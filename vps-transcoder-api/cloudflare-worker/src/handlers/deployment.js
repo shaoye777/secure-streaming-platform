@@ -56,8 +56,8 @@ export const deploymentHandlers = {
           enabled: enabled,
           note: '需要配置 CLOUDFLARE_ACCOUNT_ID、CLOUDFLARE_API_TOKEN 和 WORKER_NAME 环境变量以启用自动部署功能。',
           manualSteps: [
-            '1. 在 wrangler.toml 中设置 TUNNEL_ENABLED = "' + enabled.toString() + '"',
-            '2. 运行 wrangler deploy --env production',
+            '1. 配置已保存到KV存储，无需修改wrangler.toml',
+            '2. 如需重新部署：运行 wrangler deploy --env production',
             '3. 刷新页面查看更新后的配置'
           ]
         }, request);
