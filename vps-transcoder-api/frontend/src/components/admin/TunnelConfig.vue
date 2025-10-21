@@ -138,16 +138,17 @@ const loadTunnelConfig = async () => {
     const response = await api.request('/api/admin/tunnel/config')
     const data = response.data
     if (data.status === 'success') {
-      // 修复数据结构解析
+      // 修复数据结构解析 - API返回的是data.tunnel结构
+      const tunnelData = data.data.tunnel
       tunnelConfig.value = {
-        enabled: data.data.enabled,
-        description: data.data.description,
-        endpoints: data.data.endpoints,
-        performance: data.data.performance,
-        updatedAt: data.data.updatedAt
+        enabled: tunnelData.enabled,
+        description: tunnelData.description,
+        endpoints: tunnelData.endpoints,
+        performance: tunnelData.performance,
+        updatedAt: tunnelData.updatedAt
       }
       tunnelStatus.value = { 
-        health: data.data.endpoints?.tunnel?.status || 'unknown'
+        health: tunnelData.health?.status || 'unknown'
       }
     }
   } catch (error) {
