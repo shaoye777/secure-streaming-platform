@@ -288,10 +288,41 @@ class SimpleStreamManager {
       command: `${this.ffmpegPath} ${ffmpegArgs.join(' ')}`
     });
 
+    // 检查代理状态并设置环境变量
+    const env = { ...process.env };
+    
+    try {
+      // 检查V2Ray代理是否运行
+      const { execSync } = require('child_process');
+      const result = execSync('ps aux | grep v2ray | grep -v grep', { encoding: 'utf8' });
+      
+      if (result.trim()) {
+        // V2Ray正在运行，设置代理环境变量
+        env.http_proxy = 'socks5://127.0.0.1:1080';
+        env.https_proxy = 'socks5://127.0.0.1:1080';
+        env.HTTP_PROXY = 'socks5://127.0.0.1:1080';
+        env.HTTPS_PROXY = 'socks5://127.0.0.1:1080';
+        
+        logger.info('FFmpeg will use proxy for RTMP connection', { 
+          channelId, 
+          proxyPort: '1080',
+          rtmpUrl 
+        });
+      } else {
+        logger.info('FFmpeg will use direct connection (no proxy)', { channelId });
+      }
+    } catch (error) {
+      logger.warn('Failed to check proxy status, using direct connection', { 
+        channelId, 
+        error: error.message 
+      });
+    }
+
     // 启动FFmpeg进程
     const ffmpegProcess = spawn(this.ffmpegPath, ffmpegArgs, {
       stdio: ['ignore', 'pipe', 'pipe'],
-      detached: false
+      detached: false,
+      env: env  // 添加环境变量支持
     });
 
     // 设置进程事件处理
