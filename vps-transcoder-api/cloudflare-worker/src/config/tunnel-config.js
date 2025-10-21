@@ -24,8 +24,8 @@ export const TUNNEL_CONFIG = {
       console.warn('Failed to read runtime tunnel config:', error);
     }
     
-    // 回退到环境变量配置
-    return (env.TUNNEL_ENABLED || 'true') === 'true';
+    // 回退到环境变量配置 - 默认禁用隧道
+    return (env.TUNNEL_ENABLED || 'false') === 'true';
   },
   // 默认配置描述
   DESCRIPTION: '隧道优化功能 - 改善中国大陆用户体验'

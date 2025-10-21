@@ -2,38 +2,45 @@ import { TUNNEL_CONFIG } from '../config/tunnel-config.js';
 
 export class TunnelRouter {
   /**
-   * 智能地理路由策略 - 中国大陆自动启用隧道
+   * 智能路由策略 - 考虑隧道、代理和地理位置
    */
   static async getOptimalEndpoints(env, request = null) {
     // 检查用户地理位置
     const country = request?.cf?.country;
     const isChina = country === 'CN';
     
-    // 中国大陆用户强制使用隧道优化
-    if (isChina) {
-      return {
-        type: 'tunnel',
-        endpoints: TUNNEL_CONFIG.TUNNEL_ENDPOINTS,
-        reason: `中国大陆用户自动启用隧道优化 (${country})`
-      };
-    }
-    
-    // 其他地区根据管理员配置
+    // 1. 首先检查隧道配置
     const tunnelEnabled = await TUNNEL_CONFIG.getTunnelEnabled(env);
     
     if (tunnelEnabled) {
       return {
         type: 'tunnel',
         endpoints: TUNNEL_CONFIG.TUNNEL_ENDPOINTS,
-        reason: `管理员已启用隧道优化 - 全球用户 (${country || 'unknown'})`
-      };
-    } else {
-      return {
-        type: 'direct',
-        endpoints: TUNNEL_CONFIG.DIRECT_ENDPOINTS,
-        reason: `管理员已禁用隧道优化 - 直连模式 (${country || 'unknown'})`
+        reason: `隧道已启用 (${country || 'unknown'})`
       };
     }
+    
+    // 2. 隧道禁用时，检查代理状态
+    try {
+      const proxyConfig = await env.YOYO_USER_DB.get('proxy_config', 'json');
+      if (proxyConfig && proxyConfig.enabled && proxyConfig.activeProxyId) {
+        // 代理已启用，使用Workers代理模式（通过直连端点但走代理路径）
+        return {
+          type: 'proxy',
+          endpoints: TUNNEL_CONFIG.DIRECT_ENDPOINTS, // 使用直连端点
+          reason: `代理已启用 - 透明代理模式 (${country || 'unknown'})`
+        };
+      }
+    } catch (error) {
+      console.warn('Failed to check proxy config:', error);
+    }
+    
+    // 3. 隧道和代理都禁用，使用直连
+    return {
+      type: 'direct',
+      endpoints: TUNNEL_CONFIG.DIRECT_ENDPOINTS,
+      reason: `直连模式 - 隧道和代理均禁用 (${country || 'unknown'})`
+    };
   }
   
   /**
