@@ -12,20 +12,22 @@ export const TUNNEL_CONFIG = {
     HLS: 'https://yoyo-vps.5202021.xyz',
     HEALTH: 'https://yoyo-vps.5202021.xyz'
   },
-  // 从环境变量读取配置 (带默认值)
+  // 统一从管理后台配置读取 (KV存储)
   getTunnelEnabled: async (env) => {
-    // 首先检查运行时配置（KV存储）
     try {
       const runtimeConfig = await env.YOYO_USER_DB.get('RUNTIME_TUNNEL_ENABLED');
       if (runtimeConfig !== null) {
         return runtimeConfig === 'true';
       }
+      
+      // 如果KV中没有配置，默认禁用隧道
+      // 管理员可以通过管理后台启用
+      return false;
     } catch (error) {
-      console.warn('Failed to read runtime tunnel config:', error);
+      console.warn('Failed to read tunnel config from KV:', error);
+      // KV读取失败时，默认禁用隧道
+      return false;
     }
-    
-    // 回退到环境变量配置 - 默认禁用隧道
-    return (env.TUNNEL_ENABLED || 'false') === 'true';
   },
   // 默认配置描述
   DESCRIPTION: '隧道优化功能 - 改善中国大陆用户体验'
