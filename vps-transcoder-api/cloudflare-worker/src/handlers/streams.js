@@ -99,15 +99,21 @@ async function callTranscoderAPI(env, endpoint, method = 'GET', data = null) {
 /**
  * 🚀 智能路由：根据当前系统模式调用VPS
  */
-async function callVPSWithIntelligentRouting(env, requestData) {
+async function callVPSWithIntelligentRouting(env, requestData, request = null) {
+  console.log('🚀 [智能路由] 开始处理请求:', JSON.stringify(requestData));
+  
   try {
     // 1. 获取当前系统路由模式
-    const routingInfo = await TunnelRouter.getOptimalEndpoints(env);
+    console.log('🔍 [智能路由] 获取路由模式...');
+    const routingInfo = await TunnelRouter.getOptimalEndpoints(env, request);
     
-    console.log(`🎯 智能路由选择: ${routingInfo.type} - ${routingInfo.reason}`);
+    console.log(`🎯 [智能路由] 路由选择: ${routingInfo.type} - ${routingInfo.reason}`);
+    console.log('🔍 [智能路由] 路由详情:', JSON.stringify(routingInfo));
     
     // 2. 根据模式调用VPS API
     let vpsResponse;
+    console.log(`🔄 [智能路由] 开始${routingInfo.type}模式调用...`);
+    
     switch(routingInfo.type) {
       case 'direct':
         vpsResponse = await callVPSDirectly(env, requestData, routingInfo);
@@ -122,6 +128,7 @@ async function callVPSWithIntelligentRouting(env, requestData) {
         throw new Error(`Unknown routing type: ${routingInfo.type}`);
     }
     
+    console.log('✅ [智能路由] VPS调用成功:', JSON.stringify(vpsResponse));
     return { vpsResponse, routingInfo };
     
   } catch (error) {
@@ -149,6 +156,9 @@ async function callVPSDirectly(env, requestData, routingInfo) {
   const url = `${routingInfo.endpoints.API}/api/simple-stream/start-watching`;
   const apiKey = env.VPS_API_KEY;
   
+  console.log('🔗 [直连模式] 调用URL:', url);
+  console.log('🔑 [直连模式] API Key存在:', !!apiKey);
+  
   const response = await fetch(url, {
     method: 'POST',
     headers: {
@@ -160,23 +170,33 @@ async function callVPSDirectly(env, requestData, routingInfo) {
     body: JSON.stringify(requestData)
   });
   
+  console.log('📡 [直连模式] 响应状态:', response.status, response.statusText);
+  
   if (!response.ok) {
-    throw new Error(`VPS API调用失败: ${response.status} ${response.statusText}`);
+    const errorText = await response.text();
+    console.error('❌ [直连模式] 错误响应:', errorText);
+    throw new Error(`VPS API调用失败: ${response.status} ${response.statusText} - ${errorText}`);
   }
   
-  return await response.json();
+  const result = await response.json();
+  console.log('✅ [直连模式] 成功响应:', JSON.stringify(result));
+  return result;
 }
 
 /**
  * 代理模式调用VPS
+ * 🔧 修复：复用直连模式的调用方式，移除超时限制，确保稳定性
  */
 async function callVPSThroughProxy(env, requestData, routingInfo) {
-  // 🔧 代理模式：在Workers中，我们通过特殊的路由标识来表示代理模式
-  // 实际的代理转发由VPS端的V2Ray处理
+  console.log('🔄 [代理模式] 开始调用VPS，复用直连模式逻辑');
+  console.log('🔄 [代理模式] 请求数据:', JSON.stringify(requestData));
+  
+  // 🔧 修复：直接复用直连模式的调用逻辑，只改变User-Agent和Route-Type标识
   const url = `${routingInfo.endpoints.API}/api/simple-stream/start-watching`;
   const apiKey = env.VPS_API_KEY;
   
-  console.log('🔄 代理模式：通过VPS端V2Ray代理处理请求');
+  console.log('🔄 [代理模式] 调用URL:', url);
+  console.log('🔑 [代理模式] API Key存在:', !!apiKey);
   
   const response = await fetch(url, {
     method: 'POST',
@@ -184,18 +204,23 @@ async function callVPSThroughProxy(env, requestData, routingInfo) {
       'Content-Type': 'application/json',
       'X-API-Key': apiKey,
       'User-Agent': 'YOYO-Proxy-API/1.0',
-      'X-Route-Type': 'proxy',
-      'X-Proxy-Mode': 'v2ray',
-      'X-Proxy-Enabled': 'true'
+      'X-Route-Type': 'proxy'
     },
     body: JSON.stringify(requestData)
+    // 🔧 移除超时控制，和直连模式保持一致
   });
   
+  console.log('📡 [代理模式] 响应状态:', response.status, response.statusText);
+  
   if (!response.ok) {
-    throw new Error(`VPS代理API调用失败: ${response.status} ${response.statusText}`);
+    const errorText = await response.text();
+    console.error('❌ [代理模式] 错误响应:', errorText);
+    throw new Error(`VPS代理API调用失败: ${response.status} ${response.statusText} - ${errorText}`);
   }
   
-  return await response.json();
+  const result = await response.json();
+  console.log('✅ [代理模式] 成功响应:', JSON.stringify(result));
+  return result;
 }
 
 /**
@@ -227,26 +252,35 @@ async function callVPSThroughTunnel(env, requestData, routingInfo) {
 /**
  * 🎯 URL包装：根据当前模式生成适配的HLS播放地址
  */
-function wrapHlsUrlForCurrentMode(baseHlsPath, routingInfo, env) {
-  if (!baseHlsPath) {
-    throw new Error('Base HLS path is required');
+function wrapHlsUrlForCurrentMode(baseHlsUrl, routingInfo, env, userToken) {
+  if (!baseHlsUrl) {
+    throw new Error('Base HLS URL is required');
   }
   
-  // 获取认证token
-  const token = env.VIDEO_TOKEN || 'default-token';
+  // 获取认证token - 优先使用用户token，否则使用环境变量或默认值
+  const token = userToken || env.VIDEO_TOKEN || 'default-token';
+  
+  // 如果baseHlsUrl已经是完整URL，提取路径部分
+  let hlsPath;
+  if (baseHlsUrl.startsWith('http')) {
+    const url = new URL(baseHlsUrl);
+    hlsPath = url.pathname;
+  } else {
+    hlsPath = baseHlsUrl.startsWith('/') ? baseHlsUrl : `/${baseHlsUrl}`;
+  }
   
   // 根据路由模式包装URL
   switch(routingInfo.type) {
     case 'direct':
-      return `https://yoyoapi.5202021.xyz${baseHlsPath}?token=${token}`;
+      return `https://yoyoapi.5202021.xyz${hlsPath}?token=${token}`;
     case 'proxy':
-      return `https://yoyoapi.5202021.xyz/tunnel-proxy${baseHlsPath}?token=${token}`;
+      return `https://yoyoapi.5202021.xyz/tunnel-proxy${hlsPath}?token=${token}`;
     case 'tunnel':
-      return `https://tunnel-hls.yoyo-vps.5202021.xyz${baseHlsPath}?token=${token}`;
+      return `https://tunnel-hls.yoyo-vps.5202021.xyz${hlsPath}?token=${token}`;
     default:
       // 默认使用直连模式
       console.warn(`未知路由类型 ${routingInfo.type}，使用直连模式`);
-      return `https://yoyoapi.5202021.xyz${baseHlsPath}?token=${token}`;
+      return `https://yoyoapi.5202021.xyz${hlsPath}?token=${token}`;
   }
 }
 
@@ -287,10 +321,13 @@ export const handleStreams = {
    * 获取所有可用的流列表（用户视图）
    */
   async getStreams(request, env, ctx) {
+    console.log('🔍 [getStreams] 测试日志输出 - 这个API被调用了');
+    
     try {
       const startTime = Date.now();
       
       // 验证用户认证
+      console.log('🔐 [getStreams] 验证用户会话...');
       const auth = await validateSession(request, env);
       if (!auth) {
         return errorResponse('Authentication required', 'AUTH_REQUIRED', 401, request);
@@ -544,45 +581,74 @@ export const handleStreams = {
    * 🔥 新增：SimpleStreamManager API - 开始观看
    */
   async startWatching(request, env, ctx) {
+    console.log('🎬 [startWatching] === 函数开始执行 ===');
+    console.log('🎬 [startWatching] 请求URL:', request.url);
+    console.log('🎬 [startWatching] 请求方法:', request.method);
+    
+    let channelId; // 在外部声明，方便catch块使用
+    
     try {
+      logInfo(env, '🎬 [startWatching] 开始处理观看请求', { timestamp: new Date().toISOString() });
+      
       // 验证用户会话
+      console.log('🔐 [startWatching] 开始验证用户会话...');
       const auth = await validateSession(request, env);
       if (!auth) {
+        console.log('❌ [startWatching] 用户认证失败');
         return errorResponse('Authentication required', 'AUTH_REQUIRED', 401, request);
       }
+      console.log('✅ [startWatching] 用户认证成功:', auth.user.username);
 
       // 解析请求体
+      console.log('📝 [startWatching] 解析请求体...');
       const body = await request.json();
-      const { channelId } = body;
+      channelId = body.channelId; // 赋值给外部变量
+      console.log('📋 [startWatching] 请求参数:', JSON.stringify(body));
 
       if (!channelId) {
+        console.log('❌ [startWatching] 缺少channelId参数');
         return errorResponse('channelId is required', 'MISSING_CHANNEL_ID', 400, request);
       }
 
       // 🔥 修复：从完整的streams配置获取频道信息（包含rtmpUrl）
-      // 不能使用getStreamConfig，因为它返回的是用户视图（隐藏了rtmpUrl）
+      console.log('📺 [startWatching] 获取频道配置...');
       const streamsConfig = await getStreamsConfig(env);
+      console.log('📺 [startWatching] 频道配置数量:', streamsConfig ? streamsConfig.length : 0);
+      
+      // 确保streamsConfig是数组
+      if (!Array.isArray(streamsConfig)) {
+        console.error('❌ [startWatching] streamsConfig不是数组:', typeof streamsConfig);
+        return errorResponse('Failed to load channel configurations', 'CONFIG_ERROR', 500, request);
+      }
+      
       const streamConfig = streamsConfig.find(stream => stream.id === channelId);
       if (!streamConfig) {
+        console.log('❌ [startWatching] 频道未找到:', channelId);
         return errorResponse('Channel not found', 'CHANNEL_NOT_FOUND', 404, request);
       }
+      console.log('✅ [startWatching] 找到频道配置:', streamConfig.name);
       
       // 确保rtmpUrl存在
       if (!streamConfig.rtmpUrl) {
         return errorResponse('Channel RTMP URL not configured', 'RTMP_URL_MISSING', 400, request);
       }
 
-      // 🚀 智能路由：根据当前系统模式调用VPS并包装URL
-      const { vpsResponse, routingInfo } = await callVPSWithIntelligentRouting(env, {
+      // 🔧 修复：使用callTranscoderAPI，与其他SimpleStream API保持一致
+      logInfo(env, '🔄 [startWatching] 调用VPS SimpleStreamManager API', { channelId });
+      const vpsResponse = await callTranscoderAPI(env, 'simple-stream/start-watching', 'POST', {
         channelId: channelId,
         rtmpUrl: streamConfig.rtmpUrl
       });
 
+      // 获取路由信息用于URL包装
+      const routingInfo = await TunnelRouter.getOptimalEndpoints(env, request);
+      
       // 🎯 URL包装：根据当前模式生成适配的HLS播放地址
       const wrappedHlsUrl = wrapHlsUrlForCurrentMode(
         vpsResponse.data?.hlsUrl, 
         routingInfo, 
-        env
+        env,
+        auth.session.sessionId  // 传递用户会话ID作为token
       );
 
       logStreamEvent(env, 'start_watching_success', channelId, auth.user.username, request, {
@@ -600,8 +666,14 @@ export const handleStreams = {
       }, `Started watching successfully via ${routingInfo.type} mode`, request);
 
     } catch (error) {
-      logError(env, 'Start watching error', error, { channelId: body?.channelId });
-      return errorResponse('Failed to start watching', 'START_WATCHING_ERROR', 500, request);
+      console.error('❌ [startWatching] 捕获异常:', error);
+      logError(env, 'Start watching error', error, { channelId: channelId || 'unknown' });
+      return errorResponse(
+        `Failed to start watching: ${error.message}`, 
+        'START_WATCHING_ERROR', 
+        500, 
+        request
+      );
     }
   },
 
