@@ -19,6 +19,11 @@ import { deploymentHandlers } from './handlers/deployment.js';
 
 export default {
   async fetch(request, env, ctx) {
+    // 🔍 最基础的调试日志
+    console.log('🚀 [Worker] === Workers启动 ===');
+    console.log('🚀 [Worker] 收到请求:', request.method, request.url);
+    console.log('🚀 [Worker] 请求路径:', new URL(request.url).pathname);
+    
     try {
       // 创建路由器实例
       const router = new Router();
@@ -53,6 +58,26 @@ export default {
             timestamp: new Date().toISOString(),
             version: '2.0.0',
             project: 'yoyo-api-v2'
+          }),
+          {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json',
+              ...getCorsHeaders(request)
+            }
+          }
+        );
+      });
+
+      // 健康检查API
+      router.get('/health', (req, env, ctx) => {
+        return new Response(
+          JSON.stringify({
+            status: 'healthy',
+            message: 'YOYO Workers is running',
+            timestamp: new Date().toISOString(),
+            version: '2.1.0',
+            environment: env.ENVIRONMENT || 'development'
           }),
           {
             status: 200,
@@ -255,7 +280,10 @@ export default {
       router.get('/api/streams/status', (req, env, ctx) => handleStreams.getAllStreamsStatus(req, env, ctx));
 
       // 🔥 新增：SimpleStreamManager API路由
-      router.post('/api/simple-stream/start-watching', (req, env, ctx) => handleStreams.startWatching(req, env, ctx));
+      router.post('/api/simple-stream/start-watching', (req, env, ctx) => {
+        console.log('🚀 [Router] start-watching路由被匹配');
+        return handleStreams.startWatching(req, env, ctx);
+      });
       router.post('/api/simple-stream/stop-watching', (req, env, ctx) => handleStreams.stopWatching(req, env, ctx));
       router.post('/api/simple-stream/heartbeat', (req, env, ctx) => handleStreams.heartbeat(req, env, ctx));
       router.get('/api/simple-stream/system/status', (req, env, ctx) => handleStreams.getSystemStatus(req, env, ctx));
@@ -342,11 +370,22 @@ export default {
       // 静态资源路由（用于前端资源）
       router.get('/static/*', (req, env, ctx) => handlePages.static(req, env, ctx));
 
+      // 🔍 调试：记录请求信息
+      const url = new URL(request.url);
+      console.log('🌐 [Router] 处理请求:', {
+        method: request.method,
+        pathname: url.pathname,
+        timestamp: new Date().toISOString()
+      });
+
       // 处理请求
       const response = await router.handle(request, env, ctx);
 
       if (response) {
+        console.log('✅ [Router] 路由匹配成功:', url.pathname);
         return response;
+      } else {
+        console.log('❌ [Router] 没有匹配的路由:', url.pathname);
       }
 
       // 404处理

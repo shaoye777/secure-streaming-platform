@@ -662,7 +662,12 @@ export const handleStreams = {
         channelName: streamConfig.name,
         hlsUrl: wrappedHlsUrl,
         routingMode: routingInfo.type,
-        timestamp: vpsResponse.data?.timestamp
+        routingReason: routingInfo.reason,
+        timestamp: vpsResponse.data?.timestamp,
+        debug: {
+          originalHlsUrl: vpsResponse.data?.hlsUrl,
+          routingType: routingInfo.type
+        }
       }, `Started watching successfully via ${routingInfo.type} mode`, request);
 
     } catch (error) {
