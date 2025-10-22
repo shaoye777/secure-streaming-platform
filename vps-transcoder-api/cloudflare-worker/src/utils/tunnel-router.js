@@ -9,10 +9,14 @@ export class TunnelRouter {
     const country = request?.cf?.country;
     const isChina = country === 'CN';
     
+    console.log('[TunnelRouter] 开始路由决策...', { country, isChina });
+    
     // 1. 首先检查隧道配置
     const tunnelEnabled = await TUNNEL_CONFIG.getTunnelEnabled(env);
+    console.log('[TunnelRouter] 隧道状态:', tunnelEnabled);
     
     if (tunnelEnabled) {
+      console.log('[TunnelRouter] ✅ 使用隧道模式');
       return {
         type: 'tunnel',
         endpoints: TUNNEL_CONFIG.TUNNEL_ENDPOINTS,
@@ -22,9 +26,12 @@ export class TunnelRouter {
     
     // 2. 隧道禁用时，检查代理状态
     try {
-      const proxyConfig = await env.YOYO_USER_DB.get('proxy_config', 'json');
+      const proxyConfig = await env.YOYO_USER_DB.get('proxy-config', 'json');
+      console.log('[TunnelRouter] 代理配置:', proxyConfig);
+      
       if (proxyConfig && proxyConfig.enabled && proxyConfig.activeProxyId) {
         // 代理已启用，使用Workers代理模式（通过直连端点但走代理路径）
+        console.log('[TunnelRouter] ✅ 使用代理模式');
         return {
           type: 'proxy',
           endpoints: TUNNEL_CONFIG.DIRECT_ENDPOINTS, // 使用直连端点
@@ -32,10 +39,11 @@ export class TunnelRouter {
         };
       }
     } catch (error) {
-      console.warn('Failed to check proxy config:', error);
+      console.warn('[TunnelRouter] Failed to check proxy config:', error);
     }
     
     // 3. 隧道和代理都禁用，使用直连
+    console.log('[TunnelRouter] ✅ 使用直连模式');
     return {
       type: 'direct',
       endpoints: TUNNEL_CONFIG.DIRECT_ENDPOINTS,
