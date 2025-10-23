@@ -71,10 +71,6 @@
           <el-tab-pane label="代理配置" name="proxy">
             <ProxyConfig v-if="loadedTabs.has('proxy')" />
           </el-tab-pane>
-
-          <el-tab-pane label="延迟检测" name="ipOptimizer">
-            <IPOptimizerPanel v-if="loadedTabs.has('ipOptimizer')" />
-          </el-tab-pane>
         </el-tabs>
       </el-main>
     </el-container>
@@ -93,7 +89,6 @@ import UserManager from '../components/UserManager.vue'
 import SystemDiagnostics from '../components/SystemDiagnostics.vue'
 import TunnelConfig from '../components/admin/TunnelConfig.vue'
 import ProxyConfig from '../components/admin/ProxyConfig.vue'
-import IPOptimizerPanel from '../components/IPOptimizerPanel.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
