@@ -667,8 +667,6 @@ export const handleStreams = {
         debug: {
           originalHlsUrl: vpsResponse.data?.hlsUrl,
           routingType: routingInfo.type,
-          proxyConfig: debugProxyConfig,
-          tunnelEnabled: debugTunnelEnabled,
           country: request?.cf?.country
         }
       }, `Started watching successfully via ${routingInfo.type} mode`, request);
