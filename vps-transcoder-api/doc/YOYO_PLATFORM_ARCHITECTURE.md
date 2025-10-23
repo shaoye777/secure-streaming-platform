@@ -77,6 +77,221 @@ ssh root@142.171.75.220 "cd /tmp/github/secure-streaming-platform/vps-transcoder
 
 ---
 
+### 🔧 直连模式端口转发机制详解 ⚠️ 重要
+
+#### 问题说明
+VPS的Nginx服务监听在**52535端口**（非标准端口），但Workers代码中配置的URL是**标准HTTPS默认443端口**：
+
+```javascript
+// cloudflare-worker/src/config/tunnel-config.js
+DIRECT_ENDPOINTS: {
+  API: 'https://yoyo-vps.5202021.xyz',    // ← 默认443端口
+  HLS: 'https://yoyo-vps.5202021.xyz',    // ← 默认443端口
+  HEALTH: 'https://yoyo-vps.5202021.xyz'  // ← 默认443端口
+}
+```
+
+**疑问**：Workers如何通过443端口访问到VPS的52535端口服务？
+
+#### 解决方案：Cloudflare Origin Rules自动端口改写
+
+**关键技术**：Cloudflare的**Origin Rules**功能在边缘节点层面自动将请求端口从443改写为52535。
+
+#### Origin Rules配置步骤
+
+1. **登录Cloudflare Dashboard**
+2. **导航到规则配置**：选择域名 `5202021.xyz` → 规则 → Origin Rules
+3. **创建规则**（如果不存在）：
+
+**规则配置详情**：
+```yaml
+规则名称: yoyo-vps-api
+优先级: 8
+
+触发条件:
+  - 字段: 主机名
+  - 运算符: 等于
+  - 值: yoyo-vps.5202021.xyz
+
+执行动作:
+  - 覆写源端口 (HTTP/HTTPS)
+  - 目标端口: 52535
+```
+
+**规则效果**：
+- 所有访问 `yoyo-vps.5202021.xyz` 的请求（无论来自浏览器还是Workers）
+- Cloudflare边缘节点会自动将目标端口改写为52535
+- 然后转发到VPS的52535端口
+
+#### 完整请求流程图
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│ Workers代码配置                                                  │
+│ URL: https://yoyo-vps.5202021.xyz/hls/xxx/playlist.m3u8       │
+│                                    ↓ (默认443端口)              │
+└────────────────────────────────────────────────────────────────┘
+                        ↓
+┌────────────────────────────────────────────────────────────────┐
+│ Workers内部fetch请求                                             │
+│ fetch('https://yoyo-vps.5202021.xyz/hls/...')                 │
+│                                    ↓                            │
+└────────────────────────────────────────────────────────────────┘
+                        ↓
+┌────────────────────────────────────────────────────────────────┐
+│ Cloudflare边缘节点 (Edge)                                        │
+│ 1. 接收请求: yoyo-vps.5202021.xyz:443                          │
+│ 2. 匹配Origin Rules规则8                                        │
+│ 3. 【自动端口改写】443 → 52535                                  │
+│ 4. 解析DNS: yoyo-vps.5202021.xyz → 142.171.75.220            │
+│                                    ↓                            │
+└────────────────────────────────────────────────────────────────┘
+                        ↓
+┌────────────────────────────────────────────────────────────────┐
+│ VPS服务器 (142.171.75.220)                                      │
+│ Nginx监听: 52535端口                                            │
+│ 接收请求: GET /hls/xxx/playlist.m3u8                           │
+│                                    ↓                            │
+│ 返回: HLS文件内容                                                │
+└────────────────────────────────────────────────────────────────┘
+```
+
+#### 关键设计要点
+
+**1. Workers代码无需特殊处理**
+```javascript
+// ✅ 正确：使用标准HTTPS URL（不带端口号）
+const hlsUrl = 'https://yoyo-vps.5202021.xyz/hls/xxx/playlist.m3u8';
+const response = await fetch(hlsUrl);
+
+// ❌ 错误：手动指定端口号（不需要）
+const hlsUrl = 'https://yoyo-vps.5202021.xyz:52535/hls/xxx/playlist.m3u8';
+```
+
+**2. 端口改写在Cloudflare边缘完成**
+- 端口转发发生在**Cloudflare边缘节点**
+- 对Workers代码**完全透明**
+- Workers只需要使用标准URL
+
+**3. DNS必须启用Cloudflare代理（橙色云）**
+```
+yoyo-vps.5202021.xyz
+  类型: A记录
+  内容: 142.171.75.220
+  代理状态: 已代理 ☁️ (橙色云图标)
+```
+⚠️ **如果改为仅DNS（灰色云），Origin Rules将不生效！**
+
+**4. VPS Nginx配置**
+```nginx
+# /etc/nginx/nginx.conf
+server {
+    listen 52535;  # 监听52535端口（非标准）
+    server_name yoyo-vps.5202021.xyz;
+    
+    # API请求转发到Node.js
+    location /api/ {
+        proxy_pass http://127.0.0.1:3000/api/;
+    }
+    
+    location /health {
+        proxy_pass http://127.0.0.1:3000/health;
+    }
+    
+    # HLS文件直接服务
+    location /hls/ {
+        alias /var/www/hls/;
+        add_header Access-Control-Allow-Origin '*';
+        add_header Cache-Control 'no-cache';
+    }
+}
+```
+
+#### 为什么这样设计
+
+**1. 避免端口冲突**
+- VPS的443端口可能被其他服务占用
+- 使用52535作为专用端口，避免冲突
+
+**2. 代码简洁性**
+- Workers代码使用标准HTTPS URL
+- 不需要硬编码端口号
+- 端口配置集中在Cloudflare Dashboard管理
+
+**3. 安全性**
+- 52535端口通过Cloudflare代理访问
+- 不需要在VPS防火墙中开放52535给公网
+- 所有流量都经过Cloudflare安全防护
+
+**4. 灵活性**
+- 如需修改端口，只需修改Origin Rules配置
+- 无需重新部署Workers代码
+- 实现配置与代码分离
+
+#### 常见问题排查
+
+**问题1: Workers访问返回502 Bad Gateway**
+```bash
+# 检查步骤：
+1. 确认Cloudflare DNS是橙色云（已代理）状态
+2. 确认Origin Rules规则存在且已启用
+3. 确认VPS Nginx在52535端口正常运行
+4. 在VPS内部测试: curl http://localhost:52535/health
+```
+
+**问题2: 直接浏览器访问也失败**
+```bash
+# 原因：Origin Rules对所有通过Cloudflare的请求生效
+# 解决：检查Origin Rules配置和VPS服务状态
+```
+
+**问题3: 修改端口后不生效**
+```bash
+# 需要同时修改三处：
+1. Origin Rules中的目标端口
+2. VPS Nginx配置中的listen端口
+3. 重启Nginx: systemctl restart nginx
+4. 清除Cloudflare缓存（如需要）
+```
+
+#### 验证配置是否生效
+
+```bash
+# 1. 在VPS内部测试（确认Nginx正常）
+ssh root@142.171.75.220
+curl http://localhost:52535/health
+# 预期: 200 OK
+
+# 2. 通过Cloudflare测试（确认Origin Rules生效）
+curl https://yoyo-vps.5202021.xyz/health
+# 预期: 200 OK (通过443访问，Cloudflare转发到52535)
+
+# 3. 测试HLS文件访问
+curl https://yoyo-vps.5202021.xyz/hls/stream_xxx/playlist.m3u8
+# 预期: 返回m3u8文件内容
+
+# 4. 检查响应头（验证是Nginx返回）
+curl -I https://yoyo-vps.5202021.xyz/health
+# 预期包含: Server: nginx/1.20.1
+```
+
+#### 与隧道模式的对比
+
+**直连模式（使用Origin Rules）**：
+```
+Workers → Cloudflare Edge (443→52535端口改写) → VPS:52535
+特点: 依赖Origin Rules配置，简单高效
+```
+
+**隧道模式（使用cloudflared）**：
+```
+Workers → tunnel-hls.yoyo-vps.5202021.xyz → cloudflared → localhost:52535
+特点: 独立的隧道服务，中国用户优化
+配置: /etc/cloudflared/config.yml
+```
+
+---
+
 ## 💾 数据存储架构
 
 ### Cloudflare KV存储设计
