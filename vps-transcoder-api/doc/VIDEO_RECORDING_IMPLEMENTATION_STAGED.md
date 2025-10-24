@@ -149,11 +149,43 @@ New-Item -Path "backups\$timestamp" -ItemType Directory -Force
 # 备份关键文件
 Copy-Item "vps-transcoder-api\src\services\SimpleStreamManager.js" "backups\$timestamp\"
 Copy-Item "vps-transcoder-api\src\routes\simple-stream.js" "backups\$timestamp\"
+Copy-Item "vps-transcoder-api\vps-simple-deploy.sh" "backups\$timestamp\"
+Copy-Item "vps-transcoder-api\package.json" "backups\$timestamp\"
 Copy-Item "cloudflare-worker\src\index.js" "backups\$timestamp\"
 Copy-Item "cloudflare-worker\wrangler.toml" "backups\$timestamp\"
 ```
 
-### 准备4：创建VPS录制目录
+### 准备4：检查VPS部署脚本 ⭐重要
+
+⚠️ **确保部署脚本包含依赖安装步骤，否则后续阶段会失败！**
+
+**检查文件**: `vps-transcoder-api/vps-simple-deploy.sh`
+
+**必须包含的关键步骤**：
+```bash
+# 1. 同步package.json（确保依赖定义最新）
+cp /tmp/github/secure-streaming-platform/vps-transcoder-api/package.json /opt/yoyo-transcoder/
+
+# 2. 安装依赖（必须在代码同步之后）
+cd /opt/yoyo-transcoder
+npm install --production
+
+# 3. 重启服务
+pm2 reload vps-transcoder-api
+```
+
+**如果脚本中缺少这些步骤**，需要先完善部署脚本，再继续后续阶段。
+
+**验证方法**：
+```bash
+# 查看当前部署脚本内容
+cat vps-transcoder-api/vps-simple-deploy.sh
+
+# 确认包含 npm install 步骤
+grep "npm install" vps-transcoder-api/vps-simple-deploy.sh
+```
+
+### 准备5：创建VPS录制目录
 
 ```bash
 # SSH到VPS
@@ -168,13 +200,14 @@ chmod 755 /var/recordings /var/log/recordings
 df -h /var
 ```
 
-### 准备5：验证清单
+### 准备6：验证清单
 
 - [ ] D1数据库已创建
 - [ ] wrangler.toml已更新绑定
 - [ ] Workers环境变量已配置
 - [ ] VPS环境变量已配置
-- [ ] 关键文件已备份
+- [ ] 关键文件已备份（包括vps-simple-deploy.sh和package.json）
+- [ ] **VPS部署脚本包含npm install步骤** ⭐关键
 - [ ] VPS录制目录已创建
 - [ ] 磁盘空间 > 200GB
 
@@ -935,20 +968,77 @@ async function startServer() {
 
 ### 6.3 安装依赖
 
+**本地安装**：
 ```bash
 cd vps-transcoder-api
 npm install node-cron --save
 ```
 
-### 6.4 部署和验证
+这会更新 `package.json` 和 `package-lock.json` 文件。
+
+### 6.4 更新VPS部署脚本 ⭐重要
+
+⚠️ **必须同步修改部署脚本，确保VPS部署时自动安装新依赖！**
+
+**修改文件**: `vps-transcoder-api/vps-simple-deploy.sh`
+
+在部署脚本中添加依赖安装步骤：
 
 ```bash
-git add vps-transcoder-api/
-git commit -m "feat: 添加定时录制和自动清理功能"
+# 找到部署脚本中的代码同步部分，在重启服务前添加：
+
+echo "📦 Installing dependencies..."
+cd /opt/yoyo-transcoder
+npm install --production
+
+# 如果脚本中已有 npm install，确保它在代码复制之后执行
+```
+
+**完整建议的部署流程**：
+```bash
+# 1. 同步代码
+cp -r /tmp/github/secure-streaming-platform/vps-transcoder-api/src/* /opt/yoyo-transcoder/src/
+
+# 2. 同步package.json（确保依赖定义最新）
+cp /tmp/github/secure-streaming-platform/vps-transcoder-api/package.json /opt/yoyo-transcoder/
+
+# 3. 安装依赖 ⭐新增/更新
+cd /opt/yoyo-transcoder
+npm install --production
+
+# 4. 重启服务
+pm2 reload vps-transcoder-api
+```
+
+**为什么重要**：
+- ❌ 不更新部署脚本 → VPS缺少node-cron → 定时任务功能无法启动 → 阶段6失败
+- ✅ 更新部署脚本 → 自动安装依赖 → 所有功能正常工作
+
+### 6.5 部署和验证
+
+```bash
+# 1. 提交代码（包括package.json和部署脚本）
+git add vps-transcoder-api/package.json
+git add vps-transcoder-api/package-lock.json
+git add vps-transcoder-api/vps-simple-deploy.sh
+git add vps-transcoder-api/src/services/ScheduledTaskManager.js
+git add vps-transcoder-api/src/app.js
+git commit -m "feat: 添加定时录制和自动清理功能
+
+- 新增ScheduledTaskManager定时任务管理器
+- 集成node-cron实现定时录制和清理
+- 更新部署脚本支持依赖自动安装
+"
 git push
 
-# 部署到VPS
-ssh root@142.171.75.220 "cd /tmp/github/secure-streaming-platform/vps-transcoder-api && npm install && ./vps-simple-deploy.sh"
+# 2. 同步到VPS Git目录
+ssh root@142.171.75.220 "cd /tmp/github/secure-streaming-platform && git pull"
+
+# 3. 执行部署脚本（会自动安装依赖）
+ssh root@142.171.75.220 "/tmp/github/secure-streaming-platform/vps-transcoder-api/vps-simple-deploy.sh"
+
+# 4. 验证依赖安装
+ssh root@142.171.75.220 "cd /opt/yoyo-transcoder && npm list node-cron"
 ```
 
 **验证清单**:
