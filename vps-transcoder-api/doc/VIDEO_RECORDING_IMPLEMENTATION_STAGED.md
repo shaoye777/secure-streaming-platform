@@ -161,18 +161,33 @@ Copy-Item "cloudflare-worker\wrangler.toml" "backups\$timestamp\"
 
 **检查文件**: `vps-transcoder-api/vps-simple-deploy.sh`
 
-**必须包含的关键步骤**：
+**必须包含的关键步骤**（推荐的优化版本）：
 ```bash
 # 1. 同步package.json（确保依赖定义最新）
 cp /tmp/github/secure-streaming-platform/vps-transcoder-api/package.json /opt/yoyo-transcoder/
 
-# 2. 安装依赖（必须在代码同步之后）
+# 2. 智能安装依赖（检查是否有变化，避免不必要的安装）
 cd /opt/yoyo-transcoder
-npm install --production
+
+# 方式1: 检查package.json是否变化（推荐）
+if ! cmp -s package.json package.json.old 2>/dev/null || [ ! -d node_modules ]; then
+  echo "📦 Dependencies changed or missing, installing..."
+  npm ci --production  # 使用npm ci更快更可靠
+  cp package.json package.json.old
+else
+  echo "✅ Dependencies up to date, skipping install"
+fi
+
+# 方式2: 简单版本（总是安装，npm会自动跳过已安装的）
+npm install --production  # npm install是幂等的，不会报错
 
 # 3. 重启服务
 pm2 reload vps-transcoder-api
 ```
+
+**npm install vs npm ci**：
+- `npm install`：幂等操作，可重复执行，不会报错
+- `npm ci`：更快更可靠，适合生产环境，会删除node_modules重新安装
 
 **如果脚本中缺少这些步骤**，需要先完善部署脚本，再继续后续阶段。
 
@@ -182,7 +197,7 @@ pm2 reload vps-transcoder-api
 cat vps-transcoder-api/vps-simple-deploy.sh
 
 # 确认包含 npm install 步骤
-grep "npm install" vps-transcoder-api/vps-simple-deploy.sh
+grep "npm install\|npm ci" vps-transcoder-api/vps-simple-deploy.sh
 ```
 
 ### 准备5：创建VPS录制目录
@@ -982,37 +997,72 @@ npm install node-cron --save
 
 **修改文件**: `vps-transcoder-api/vps-simple-deploy.sh`
 
-在部署脚本中添加依赖安装步骤：
+在部署脚本中添加依赖安装步骤（提供两种方案）：
 
+**方案1: 智能安装（推荐，更快）**
 ```bash
-# 找到部署脚本中的代码同步部分，在重启服务前添加：
+# 在重启服务前添加：
+echo "📦 Checking dependencies..."
+cd /opt/yoyo-transcoder
 
+# 只在package.json变化或node_modules缺失时安装
+if ! cmp -s package.json package.json.old 2>/dev/null || [ ! -d node_modules ]; then
+  echo "📦 Dependencies changed or missing, installing..."
+  npm ci --production
+  cp package.json package.json.old
+else
+  echo "✅ Dependencies up to date, skipping install"
+fi
+```
+
+**方案2: 简单版本（总是安装，但npm会自动优化）**
+```bash
 echo "📦 Installing dependencies..."
 cd /opt/yoyo-transcoder
-npm install --production
-
-# 如果脚本中已有 npm install，确保它在代码复制之后执行
+npm install --production  # 幂等操作，不会报错
 ```
 
 **完整建议的部署流程**：
 ```bash
+#!/bin/bash
+# vps-simple-deploy.sh 完整示例
+
+echo "🚀 Starting deployment..."
+
 # 1. 同步代码
+echo "📁 Syncing source code..."
 cp -r /tmp/github/secure-streaming-platform/vps-transcoder-api/src/* /opt/yoyo-transcoder/src/
 
 # 2. 同步package.json（确保依赖定义最新）
+echo "📦 Syncing package.json..."
 cp /tmp/github/secure-streaming-platform/vps-transcoder-api/package.json /opt/yoyo-transcoder/
 
-# 3. 安装依赖 ⭐新增/更新
+# 3. 智能安装依赖
 cd /opt/yoyo-transcoder
-npm install --production
+if ! cmp -s package.json package.json.old 2>/dev/null || [ ! -d node_modules ]; then
+  echo "📦 Installing dependencies..."
+  npm ci --production
+  cp package.json package.json.old
+else
+  echo "✅ Dependencies up to date"
+fi
 
 # 4. 重启服务
+echo "🔄 Reloading service..."
 pm2 reload vps-transcoder-api
+
+echo "✅ Deployment completed!"
 ```
 
 **为什么重要**：
 - ❌ 不更新部署脚本 → VPS缺少node-cron → 定时任务功能无法启动 → 阶段6失败
 - ✅ 更新部署脚本 → 自动安装依赖 → 所有功能正常工作
+
+**npm install vs npm ci**：
+| 命令 | 特点 | 适用场景 |
+|------|------|---------|
+| `npm install` | 幂等操作，可重复执行 | 开发环境 |
+| `npm ci` | 删除node_modules重新安装，更快更可靠 | 生产环境部署 ⭐推荐 |
 
 ### 6.5 部署和验证
 
