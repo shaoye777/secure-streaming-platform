@@ -83,9 +83,10 @@
 - **成功率**: 正常停止99%，崩溃85%，断电60%
 
 ### **文件命名规则**
-- **格式**: `YYYY-MM-DD_HH-MM_HH-MM.mp4`
-- **示例**: `2025-10-22_07-50_08-50.mp4`
-- **说明**: 开始时间_结束时间
+- **格式**: `YYYY-MM-DD_HH-MM-SS.mp4`
+- **示例**: `2025-10-24_14-03-25.mp4`
+- **说明**: 录制开始时间（年-月-日_时-分-秒）
+- **结束时间**: 通过ffprobe读取视频时长或查询D1数据库的end_time字段
 
 ---
 
@@ -372,7 +373,7 @@ async spawnFFmpegProcess(channelId, rtmpUrl, options = {}) {
       '-c:v:1', 'libx264', '-preset:v:1', 'medium', '-an',
       '-f', 'segment', '-segment_time', segmentDuration,
       '-strftime', '1',
-      '-segment_filename', `/var/recordings/${channelId}/%Y-%m-%d_%H-%M_temp.mp4`
+      '-segment_filename', `/var/recordings/${channelId}/%Y-%m-%d_%H-%M-%S.mp4`
     );
   } else {
     // 只输出HLS（现有逻辑）
