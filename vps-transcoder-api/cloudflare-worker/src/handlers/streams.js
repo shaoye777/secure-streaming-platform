@@ -274,7 +274,8 @@ function wrapHlsUrlForCurrentMode(baseHlsUrl, routingInfo, env, userToken) {
   
   switch(frontendPath) {
     case 'tunnel':
-      return `https://tunnel-hls.yoyo-vps.5202021.xyz${hlsPath}?token=${token}`;
+      // ✅ 使用Workers代理路径，绕过浏览器SSL验证问题
+      return `https://yoyoapi.5202021.xyz/tunnel-proxy${hlsPath}?token=${token}`;
     case 'direct':
       return `https://yoyoapi.5202021.xyz${hlsPath}?token=${token}`;
     default:

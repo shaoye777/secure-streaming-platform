@@ -342,8 +342,75 @@ export default {
       // HLS代理路由
       router.get('/hls/:streamId/:file', (req, env, ctx) => handleProxy.hlsFile(req, env, ctx));
 
-      // 🔥 代理模式下的HLS流量路由 - 通过代理转发视频流量
-      router.get('/tunnel-proxy/hls/:streamId/:file', (req, env, ctx) => handleProxy.hlsFile(req, env, ctx));
+      // 🔥 Workers隧道代理 - 绕过浏览器SSL验证，Workers内部代理到tunnel端点
+      router.get('/tunnel-proxy/hls/:streamId/:file', async (req, env, ctx) => {
+        const { streamId, file } = req.params;
+        const url = new URL(req.url);
+        const queryString = url.search;
+        
+        // Workers内部代理到tunnel-hls端点
+        const tunnelUrl = `https://tunnel-hls.yoyo-vps.5202021.xyz/hls/${streamId}/${file}${queryString}`;
+        
+        console.log(`🔄 Workers代理: ${req.url} → ${tunnelUrl}`);
+        
+        try {
+          // Workers到Tunnel的请求（Cloudflare内部，无浏览器SSL问题）
+          const response = await fetch(tunnelUrl, {
+            method: req.method,
+            headers: {
+              'User-Agent': 'YOYO-Workers-Proxy/1.0',
+              'Accept': req.headers.get('Accept') || '*/*',
+              'Range': req.headers.get('Range'),
+              'X-Forwarded-For': req.headers.get('CF-Connecting-IP')
+            },
+            signal: AbortSignal.timeout(15000) // 15秒超时
+          });
+          
+          // 准备响应头
+          const headers = new Headers(response.headers);
+          headers.set('Access-Control-Allow-Origin', '*');
+          headers.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
+          headers.set('Access-Control-Expose-Headers', 'Content-Length, Content-Type');
+          headers.set('X-Proxied-By', 'Workers-Tunnel-Proxy');
+          
+          console.log(`✅ Workers代理成功: ${response.status}`);
+          
+          return new Response(response.body, {
+            status: response.status,
+            headers: headers
+          });
+          
+        } catch (error) {
+          console.error(`❌ Workers代理失败: ${error.message}`);
+          
+          // 故障转移到直连端点
+          const directUrl = `https://yoyo-vps.5202021.xyz/hls/${streamId}/${file}${queryString}`;
+          console.log(`🔄 降级到直连: ${directUrl}`);
+          
+          try {
+            const fallbackResponse = await fetch(directUrl, {
+              method: req.method,
+              headers: {
+                'User-Agent': 'YOYO-Workers-Fallback/1.0',
+                'Accept': req.headers.get('Accept') || '*/*',
+                'Range': req.headers.get('Range')
+              },
+              signal: AbortSignal.timeout(10000)
+            });
+            
+            const headers = new Headers(fallbackResponse.headers);
+            headers.set('Access-Control-Allow-Origin', '*');
+            headers.set('X-Fallback', 'true');
+            
+            return new Response(fallbackResponse.body, {
+              status: fallbackResponse.status,
+              headers: headers
+            });
+          } catch (fallbackError) {
+            return new Response('Stream proxy failed', { status: 502 });
+          }
+        }
+      });
 
       // 代理管理路由 - 使用简化的admin处理器（参照频道管理模式）
       router.get('/api/admin/proxy/config', (req, env, ctx) => handleAdmin.getProxyConfig(req, env, ctx));
