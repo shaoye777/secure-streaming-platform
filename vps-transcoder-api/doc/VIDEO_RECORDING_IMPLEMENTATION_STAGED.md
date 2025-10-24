@@ -545,31 +545,213 @@ async spawnFFmpegProcess(channelId, rtmpUrl, options = {}) {
 4. ✅ 保留代理检测逻辑
 5. ✅ 双输出时HLS和录制使用相同的音频处理策略
 
-### 2.3 新增辅助方法
+### 2.3 新增录制配置变更处理方法
+
+⚠️ **关键方法**：管理员修改录制配置后的完整处理逻辑
 
 ```javascript
-// 录制心跳
-setRecordingHeartbeat(channelId) { /* ... */ }
-clearRecordingHeartbeat(channelId) { /* ... */ }
-isRecordingConfigChanged(oldConfig, newConfig) { /* ... */ }
-```
-
-### 2.4 修改cleanupIdleChannels
-
-```javascript
-async cleanupIdleChannels() {
-  for (const [channelId, lastHeartbeat] of this.channelHeartbeats) {
-    const processInfo = this.activeStreams.get(channelId);
+/**
+ * 处理录制配置变更（新增方法）
+ * @param {string} channelId - 频道ID
+ * @param {Object} newRecordingConfig - 新的录制配置
+ * @param {Object} channelConfig - 频道基本配置（包含rtmpUrl）
+ * @returns {Object} 处理结果
+ */
+async handleRecordingConfigChange(channelId, newRecordingConfig, channelConfig) {
+  const processInfo = this.activeStreams.get(channelId);
+  
+  if (processInfo) {
+    // ⚠️ 场景1：有运行中的进程 → 必须重启应用新配置
+    const hasViewers = this.channelHeartbeats.has(channelId);
+    const rtmpUrl = processInfo.rtmpUrl;
     
-    // 跳过正在录制的频道
-    if (processInfo && processInfo.isRecording) continue;
+    logger.info('Restarting process for recording config change', {
+      channelId,
+      hasViewers,
+      oldConfig: processInfo.recordingConfig,
+      newConfig: newRecordingConfig
+    });
     
-    // 正常清理逻辑...
+    // 1. 停止当前进程
+    await this.stopChannel(channelId);
+    
+    // 2. 使用新配置重启进程
+    await this.startNewStream(channelId, rtmpUrl, {
+      recordingConfig: newRecordingConfig
+    });
+    
+    // 影响：用户观看中断约7秒（配置修改频率低，可接受）
+    return {
+      action: 'restarted',
+      message: '已重启转码进程以应用新配置',
+      impactSeconds: 7
+    };
+    
+  } else if (newRecordingConfig.enabled) {
+    // ✅ 场景2：无运行进程 + 启用录制 → 预启动进程
+    // 好处：避免用户后续加入时需要重启进程，优化用户体验
+    logger.info('Pre-starting process for recording', {
+      channelId,
+      config: newRecordingConfig
+    });
+    
+    await this.startNewStream(channelId, channelConfig.rtmpUrl, {
+      recordingConfig: newRecordingConfig
+    });
+    
+    return {
+      action: 'pre-started',
+      message: '已预启动转码进程（支持录制和观看）',
+      note: '用户加入时无需重启，避免7秒等待'
+    };
+  } else {
+    // 场景3：无运行进程 + 禁用录制 → 无需操作
+    return {
+      action: 'none',
+      message: '配置已更新（无需重启进程）'
+    };
   }
 }
 ```
 
-### 2.5 部署到VPS
+### 2.4 新增录制心跳机制（完整实现）
+
+⚠️ **关键机制**：防止定时录制进程被60秒空闲清理机制误杀
+
+**问题场景**：
+```
+1. 定时录制任务启动 → FFmpeg进程开始录制
+2. 无用户观看 → 没有用户心跳
+3. 60秒后 → cleanupIdleChannels()判断空闲
+4. 停止FFmpeg进程 ❌ → 录制失败！
+```
+
+**解决方案**：录制进程自己维护心跳
+
+```javascript
+/**
+ * 设置录制心跳（防止被清理）
+ * 关键：即使没有用户观看，录制进程也要保持运行
+ */
+setRecordingHeartbeat(channelId) {
+  // 每30秒自动更新心跳时间戳
+  const intervalId = setInterval(() => {
+    this.channelHeartbeats.set(channelId, Date.now());
+    logger.debug('Recording heartbeat updated', { 
+      channelId,
+      timestamp: Date.now()
+    });
+  }, 30000); // 30秒间隔，远小于60秒超时
+  
+  // 保存定时器ID，用于后续清理
+  if (!this.recordingHeartbeats) {
+    this.recordingHeartbeats = new Map();
+  }
+  this.recordingHeartbeats.set(channelId, intervalId);
+  
+  logger.info('Recording heartbeat started', { channelId });
+}
+
+/**
+ * 清理录制心跳
+ */
+clearRecordingHeartbeat(channelId) {
+  if (!this.recordingHeartbeats) return;
+  
+  const intervalId = this.recordingHeartbeats.get(channelId);
+  if (intervalId) {
+    clearInterval(intervalId);
+    this.recordingHeartbeats.delete(channelId);
+    logger.info('Recording heartbeat stopped', { channelId });
+  }
+}
+
+/**
+ * 检查录制配置是否变更
+ * 关键：决定是否需要重启FFmpeg进程
+ */
+isRecordingConfigChanged(oldConfig, newConfig) {
+  // 都不存在 → 无变化
+  if (!oldConfig && !newConfig) return false;
+  
+  // 一个存在一个不存在 → 有变化
+  if (!oldConfig || !newConfig) return true;
+  
+  // 检查关键配置项是否变化
+  return (
+    oldConfig.enabled !== newConfig.enabled ||
+    oldConfig.start_time !== newConfig.start_time ||
+    oldConfig.end_time !== newConfig.end_time ||
+    oldConfig.segment_duration !== newConfig.segment_duration ||
+    oldConfig.retention_days !== newConfig.retention_days
+  );
+}
+```
+
+### 2.5 修改cleanupIdleChannels
+
+⚠️ **关键修改**：确保录制进程不会被误清理
+
+```javascript
+async cleanupIdleChannels() {
+  const now = Date.now();
+  
+  for (const [channelId, lastHeartbeat] of this.channelHeartbeats) {
+    const processInfo = this.activeStreams.get(channelId);
+    
+    // 🔥 关键：跳过正在录制的频道
+    // 即使超过60秒无用户心跳，录制进程也不能停止
+    if (processInfo && processInfo.isRecording) {
+      logger.debug('Skip cleanup for recording channel', { 
+        channelId,
+        isRecording: true 
+      });
+      continue;
+    }
+    
+    // 正常清理逻辑：超过60秒无心跳的频道
+    if (now - lastHeartbeat > this.HEARTBEAT_TIMEOUT) {
+      logger.info('Channel idle timeout, cleaning up', { 
+        channelId, 
+        idleTime: now - lastHeartbeat 
+      });
+      
+      await this.stopChannel(channelId);
+      this.channelHeartbeats.delete(channelId);
+    }
+  }
+}
+```
+
+### 2.6 修改stopChannel方法
+
+⚠️ **关键修改**：停止时清理录制心跳
+
+```javascript
+async stopChannel(channelId) {
+  const processInfo = this.activeStreams.get(channelId);
+  if (!processInfo) return;
+  
+  try {
+    // 🆕 如果是录制进程，清理录制心跳
+    if (processInfo.isRecording) {
+      this.clearRecordingHeartbeat(channelId);
+      logger.info('Stopped recording', { channelId });
+    }
+    
+    // 停止FFmpeg进程并清理
+    await this.stopFFmpegProcess(channelId);
+    await this.cleanupChannelHLS(channelId);
+    this.activeStreams.delete(channelId);
+    
+    logger.info('Channel stopped successfully', { channelId });
+  } catch (error) {
+    logger.error('Failed to stop channel', { channelId, error: error.message });
+  }
+}
+```
+
+### 2.7 部署到VPS
 
 ```bash
 # 提交代码
@@ -631,26 +813,291 @@ ssh root@142.171.75.220 "ls -la /var/recordings/stream_xxx/"
 - 自动重命名临时文件为标准格式
 - 通过Workers API更新D1数据库
 
-**关键方法**：
+**完整实现**（⚠️ 关键逻辑，不能简化）：
+
 ```javascript
+const fs = require('fs').promises;
+const path = require('path');
+const { spawn } = require('child_process');
+const logger = require('../utils/logger');
+
 class SegmentedRecordingManager {
   constructor() {
     this.recordingsDir = process.env.RECORDINGS_BASE_DIR || '/var/recordings';
-    this.activeWatchers = new Map();
+    this.activeWatchers = new Map(); // 文件监听器
+    this.workerApiUrl = process.env.WORKER_API_URL || 'https://yoyoapi.5202021.xyz';
+    this.apiKey = process.env.VPS_API_KEY;
   }
   
-  // 开始监听频道录制目录
-  startWatching(channelId) { /* ... */ }
+  /**
+   * 开始监听频道录制目录
+   * 关键：使用fs.watch实时监听文件变化
+   */
+  startWatching(channelId) {
+    const outputDir = path.join(this.recordingsDir, channelId);
+    
+    // 确保目录存在
+    fs.mkdir(outputDir, { recursive: true }).catch(err => {
+      logger.error('Failed to create recording dir', { channelId, error: err.message });
+    });
+    
+    // 使用fs.watch监听目录变化
+    const watcher = fs.watch(outputDir, async (eventType, filename) => {
+      if (eventType === 'rename' && filename && filename.endsWith('.mp4')) {
+        logger.info('File change detected', { 
+          channelId, 
+          eventType, 
+          filename 
+        });
+        
+        // 处理新文件或文件完成事件
+        await this.handleNewFile(channelId, filename);
+      }
+    });
+    
+    this.activeWatchers.set(channelId, watcher);
+    logger.info('Started watching recording directory', { channelId, outputDir });
+  }
   
-  // 停止监听
-  stopWatching(channelId) { /* ... */ }
+  /**
+   * 停止监听
+   */
+  stopWatching(channelId) {
+    const watcher = this.activeWatchers.get(channelId);
+    if (watcher) {
+      watcher.close();
+      this.activeWatchers.delete(channelId);
+      logger.info('Stopped watching recording directory', { channelId });
+    }
+  }
   
-  // 处理新文件创建事件
-  async handleNewFile(channelId, filename) { /* ... */ }
+  /**
+   * 处理新文件创建事件
+   * 关键流程：检测临时文件 → 等待稳定 → 验证 → 重命名 → 创建D1记录
+   */
+  async handleNewFile(channelId, filename) {
+    try {
+      const outputDir = path.join(this.recordingsDir, channelId);
+      const filePath = path.join(outputDir, filename);
+      
+      // 步骤1：检查是否为临时文件
+      // FFmpeg生成的临时文件通常有特殊后缀或命名模式
+      if (filename.includes('_temp') || filename.includes('.tmp')) {
+        logger.debug('Detected temp file, waiting for completion', { 
+          channelId, 
+          filename 
+        });
+        return; // 等待文件完成
+      }
+      
+      // 步骤2：等待文件写入稳定
+      const isStable = await this.waitForFileStable(filePath);
+      if (!isStable) {
+        logger.warn('File write timeout, may still be recording', { 
+          channelId, 
+          filename 
+        });
+        return;
+      }
+      
+      // 步骤3：验证文件完整性
+      const isValid = await this.validateMP4File(filePath);
+      
+      if (!isValid) {
+        // 损坏文件：标记为recording状态，等待启动时修复
+        logger.warn('Segment file is corrupted, marking for repair', { 
+          channelId, 
+          filename 
+        });
+        
+        await this.createSegmentRecord(channelId, {
+          filename,
+          filePath,
+          status: 'recording', // 标记为未完成
+          needsRepair: true
+        });
+        return;
+      }
+      
+      // 步骤4：生成标准文件名（如果需要）
+      let finalFilename = filename;
+      if (!this.isStandardFilename(filename)) {
+        finalFilename = await this.generateStandardFilename(filePath);
+        const finalPath = path.join(outputDir, finalFilename);
+        
+        // 重命名为标准格式
+        await fs.rename(filePath, finalPath);
+        logger.info('Renamed segment file', { 
+          channelId, 
+          original: filename,
+          renamed: finalFilename 
+        });
+      }
+      
+      // 步骤5：创建D1数据库记录
+      await this.createSegmentRecord(channelId, {
+        filename: finalFilename,
+        filePath: path.join(outputDir, finalFilename),
+        status: 'completed'
+      });
+      
+      logger.info('Segment processed successfully', { 
+        channelId, 
+        filename: finalFilename 
+      });
+      
+    } catch (error) {
+      logger.error('Failed to handle new file', { 
+        channelId, 
+        filename, 
+        error: error.message 
+      });
+    }
+  }
   
-  // 重命名临时文件并更新数据库
-  async processCompletedSegment(channelId, filePath) { /* ... */ }
+  /**
+   * 等待文件稳定（写入完成）
+   * 检查文件大小是否不再变化
+   */
+  async waitForFileStable(filePath, timeout = 10000) {
+    const startTime = Date.now();
+    let lastSize = 0;
+    
+    while (Date.now() - startTime < timeout) {
+      try {
+        const stats = await fs.stat(filePath);
+        const currentSize = stats.size;
+        
+        // 文件大小不再变化，认为写入完成
+        if (currentSize === lastSize && currentSize > 0) {
+          logger.debug('File is stable', { filePath, size: currentSize });
+          return true;
+        }
+        
+        lastSize = currentSize;
+        await new Promise(resolve => setTimeout(resolve, 1000)); // 等待1秒
+        
+      } catch (error) {
+        // 文件可能还不存在或正在写入
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+    
+    logger.warn('File stability check timeout', { filePath });
+    return false; // 超时
+  }
+  
+  /**
+   * 验证MP4文件完整性
+   * 使用ffprobe检查文件是否可以正常解析
+   */
+  async validateMP4File(filePath) {
+    return new Promise((resolve) => {
+      const ffprobe = spawn('ffprobe', [
+        '-v', 'error',
+        '-show_format',
+        '-show_streams',
+        filePath
+      ]);
+      
+      let hasOutput = false;
+      
+      ffprobe.stdout.on('data', () => {
+        hasOutput = true;
+      });
+      
+      ffprobe.on('close', (code) => {
+        // ffprobe返回0且有输出说明文件有效
+        resolve(code === 0 && hasOutput);
+      });
+      
+      // 10秒超时
+      setTimeout(() => {
+        ffprobe.kill();
+        resolve(false);
+      }, 10000);
+    });
+  }
+  
+  /**
+   * 检查是否为标准文件名格式
+   * 标准格式：YYYY-MM-DD_HH-MM-SS.mp4
+   */
+  isStandardFilename(filename) {
+    const pattern = /^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.mp4$/;
+    return pattern.test(filename);
+  }
+  
+  /**
+   * 生成标准文件名
+   * 从文件的创建时间或ffprobe元数据生成
+   */
+  async generateStandardFilename(filePath) {
+    try {
+      // 使用文件的创建时间
+      const stats = await fs.stat(filePath);
+      const createTime = new Date(stats.birthtime);
+      
+      const year = createTime.getFullYear();
+      const month = String(createTime.getMonth() + 1).padStart(2, '0');
+      const day = String(createTime.getDate()).padStart(2, '0');
+      const hour = String(createTime.getHours()).padStart(2, '0');
+      const minute = String(createTime.getMinutes()).padStart(2, '0');
+      const second = String(createTime.getSeconds()).padStart(2, '0');
+      
+      return `${year}-${month}-${day}_${hour}-${minute}-${second}.mp4`;
+    } catch (error) {
+      // 失败时使用当前时间
+      const now = new Date();
+      return `${now.toISOString().split('T')[0]}_${now.toTimeString().split(' ')[0].replace(/:/g, '-')}.mp4`;
+    }
+  }
+  
+  /**
+   * 创建分段记录（通过Workers API）
+   */
+  async createSegmentRecord(channelId, recordData) {
+    try {
+      const stats = await fs.stat(recordData.filePath);
+      
+      const response = await fetch(`${this.workerApiUrl}/api/admin/recordings`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': this.apiKey
+        },
+        body: JSON.stringify({
+          channel_id: channelId,
+          filename: recordData.filename,
+          file_path: recordData.filePath,
+          file_size: stats.size,
+          status: recordData.status || 'completed',
+          needs_repair: recordData.needsRepair || false,
+          start_time: stats.birthtime.toISOString(),
+          created_at: new Date().toISOString()
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API request failed: ${response.status}`);
+      }
+      
+      logger.info('Created segment record in D1', { 
+        channelId, 
+        filename: recordData.filename 
+      });
+      
+    } catch (error) {
+      logger.error('Failed to create segment record', { 
+        channelId, 
+        error: error.message 
+      });
+      // 不抛出错误，避免影响其他处理
+    }
+  }
 }
+
+module.exports = SegmentedRecordingManager;
 ```
 
 ### 3.2 集成到SimpleStreamManager
@@ -957,20 +1404,70 @@ export default {
 
 <script setup>
 import recordingApi from '@/services/recordingApi';
+import { ElMessageBox, ElMessage } from 'element-plus';
 
 // 切换录制开关
 async function handleRecordingToggle(channel) {
+  // ⚠️ 新增：用户提示功能
+  // 检查频道是否有活跃观看者
+  const hasActiveViewers = await checkActiveViewers(channel.id);
+  
+  if (hasActiveViewers && channel.recordingEnabled) {
+    // 启用录制时，如果有用户在观看，提示会中断
+    try {
+      await ElMessageBox.confirm(
+        '该频道正在被观看，修改录制配置会导致观看中断约7秒，是否继续？',
+        '确认修改',
+        {
+          type: 'warning',
+          confirmButtonText: '确认修改',
+          cancelButtonText: '取消'
+        }
+      );
+    } catch {
+      // 用户取消，恢复开关状态
+      channel.recordingEnabled = !channel.recordingEnabled;
+      return;
+    }
+  }
+  
+  // 用户确认后执行更新
   channel.recordingLoading = true;
   try {
-    await recordingApi.updateRecordingConfig(channel.id, {
+    const result = await recordingApi.updateRecordingConfig(channel.id, {
       enabled: channel.recordingEnabled
     });
-    ElMessage.success('录制设置已更新');
+    
+    // 根据返回的action显示不同消息
+    if (result.data.action === 'restarted') {
+      ElMessage.success('录制设置已更新（进程已重启）');
+    } else if (result.data.action === 'pre-started') {
+      ElMessage.success('录制设置已更新（进程已预启动，用户加入时无需等待）');
+    } else {
+      ElMessage.success('录制设置已更新');
+    }
   } catch (error) {
+    // 更新失败，恢复开关状态
     channel.recordingEnabled = !channel.recordingEnabled;
     ElMessage.error('更新失败：' + error.message);
   } finally {
     channel.recordingLoading = false;
+  }
+}
+
+// 检查频道是否有活跃观看者
+async function checkActiveViewers(channelId) {
+  try {
+    const response = await axios.get(
+      `${process.env.VUE_APP_VPS_URL}/api/simple-stream/system/status`
+    );
+    
+    // 检查返回的活跃流中是否包含该频道
+    const status = response.data;
+    return status.activeStreams > 0 && status.channels?.includes(channelId);
+  } catch (error) {
+    // API调用失败，保守起见返回true
+    return true;
   }
 }
 </script>
@@ -1015,67 +1512,423 @@ git push
 **风险等级**：🟡 中  
 **预计时间**：60分钟
 
-### 6.1 创建定时任务管理器
+### 6.1 创建定时任务管理器（完整实现）
 
 **创建文件**: `vps-transcoder-api/src/services/ScheduledTaskManager.js`
 
+⚠️ **关键逻辑**：定时录制的完整启动和停止流程
+
 ```javascript
 const cron = require('node-cron');
+const fs = require('fs').promises;
+const path = require('path');
+const logger = require('../utils/logger');
 
 class ScheduledTaskManager {
   constructor(simpleStreamManager) {
     this.streamManager = simpleStreamManager;
-    this.tasks = new Map();
+    this.tasks = new Map(); // 定时任务跟踪
+    this.activeRecordings = new Map(); // 当前活跃的定时录制
+    this.recordingsDir = process.env.RECORDINGS_BASE_DIR || '/var/recordings';
     this.cleanupHour = process.env.RECORDINGS_CLEANUP_HOUR || 3;
     this.retentionDays = process.env.RECORDINGS_RETENTION_DAYS || 2;
+    this.workerApiUrl = process.env.WORKER_API_URL || 'https://yoyoapi.5202021.xyz';
+    this.apiKey = process.env.VPS_API_KEY;
   }
   
-  // 启动所有定时任务
+  /**
+   * 启动所有定时任务
+   */
   startAllTasks() {
     this.startRecordingSchedule();
     this.startCleanupSchedule();
+    logger.info('All scheduled tasks started', {
+      recordingSchedule: '7:50-17:20',
+      cleanupSchedule: `${this.cleanupHour}:00`,
+      retentionDays: this.retentionDays
+    });
   }
   
-  // 定时录制任务（每天7:50启动，17:20停止）
+  /**
+   * 定时录制任务（每天7:50启动，17:20停止）
+   */
   startRecordingSchedule() {
-    // 每天7:50启动录制
+    // 每天7:50启动录制（北京时间）
     cron.schedule('50 7 * * *', async () => {
+      logger.info('Daily recording start time reached');
       await this.startDailyRecording();
     });
     
-    // 每天17:20停止录制
+    // 每天17:20停止录制（北京时间）
     cron.schedule('20 17 * * *', async () => {
+      logger.info('Daily recording stop time reached');
       await this.stopDailyRecording();
+    });
+    
+    logger.info('Recording schedule configured', {
+      startTime: '7:50',
+      endTime: '17:20',
+      timezone: 'Asia/Shanghai'
     });
   }
   
-  // 定时清理任务（凌晨3点）
+  /**
+   * 启动每日录制
+   * 关键流程：获取配置 → 生成文件名 → 启动进程 → 创建D1记录 → 设置心跳 → 定时停止
+   */
+  async startDailyRecording() {
+    try {
+      // 1. 获取所有启用录制的频道
+      const recordingChannels = await this.getActiveRecordingChannels();
+      
+      logger.info('Starting daily recording', {
+        channelCount: recordingChannels.length,
+        channels: recordingChannels.map(c => c.channel_id)
+      });
+      
+      // 2. 为每个频道启动录制
+      for (const config of recordingChannels) {
+        await this.startScheduledRecording(config);
+      }
+      
+      logger.info('Daily recording started successfully', {
+        startedCount: this.activeRecordings.size
+      });
+      
+    } catch (error) {
+      logger.error('Failed to start daily recording', {
+        error: error.message
+      });
+    }
+  }
+  
+  /**
+   * 启动单个频道的定时录制
+   * 完整流程实现（基于SOLUTION文档行2054-2134）
+   */
+  async startScheduledRecording(recordingConfig) {
+    const { channel_id, start_time, end_time } = recordingConfig;
+    
+    try {
+      // 1. 获取频道的RTMP配置
+      const channelConfig = await this.getChannelConfig(channel_id);
+      
+      if (!channelConfig || !channelConfig.rtmpUrl) {
+        logger.error('Channel config not found', { channel_id });
+        return;
+      }
+      
+      // 2. 生成录制文件名（包含日期和时间范围）
+      const now = new Date();
+      const dateStr = now.toISOString().split('T')[0]; // 2025-10-24
+      const startTimeStr = start_time.replace(':', '-'); // 07-50
+      const endTimeStr = end_time.replace(':', '-'); // 17-20
+      const filename = `${dateStr}_${startTimeStr}_${endTimeStr}.mp4`;
+      
+      logger.info('Starting scheduled recording', {
+        channel_id,
+        filename,
+        rtmpUrl: channelConfig.rtmpUrl
+      });
+      
+      // 3. 启动FFmpeg录制进程
+      await this.streamManager.startNewStream(
+        channel_id, 
+        channelConfig.rtmpUrl,
+        {
+          recordingConfig: {
+            enabled: true,
+            segment_duration: recordingConfig.segment_duration || 3600
+          }
+        }
+      );
+      
+      // 4. 计算录制结束时间
+      const recordingEndTime = new Date();
+      const [endHour, endMinute] = end_time.split(':');
+      recordingEndTime.setHours(parseInt(endHour), parseInt(endMinute), 0, 0);
+      
+      // 5. 在D1中创建录制记录
+      await this.createRecordingInD1({
+        channel_id,
+        filename,
+        start_time: now.toISOString(),
+        end_time: recordingEndTime.toISOString(),
+        status: 'recording',
+        retention_days: recordingConfig.retention_days || this.retentionDays
+      });
+      
+      // 6. 设置录制心跳（防止被清理）
+      this.streamManager.setRecordingHeartbeat(channel_id);
+      
+      // 7. 保存到活跃录制列表
+      this.activeRecordings.set(channel_id, {
+        filename,
+        startTime: now,
+        endTime: recordingEndTime,
+        config: recordingConfig
+      });
+      
+      logger.info('Scheduled recording started successfully', {
+        channel_id,
+        filename,
+        expectedEndTime: recordingEndTime.toISOString()
+      });
+      
+    } catch (error) {
+      logger.error('Failed to start scheduled recording', {
+        channel_id,
+        error: error.message
+      });
+    }
+  }
+  
+  /**
+   * 停止每日录制
+   */
+  async stopDailyRecording() {
+    try {
+      logger.info('Stopping daily recording', {
+        activeCount: this.activeRecordings.size,
+        channels: Array.from(this.activeRecordings.keys())
+      });
+      
+      // 停止所有活跃的定时录制
+      for (const [channel_id, recordingInfo] of this.activeRecordings) {
+        await this.stopScheduledRecording(channel_id, recordingInfo);
+      }
+      
+      this.activeRecordings.clear();
+      
+      logger.info('Daily recording stopped successfully');
+      
+    } catch (error) {
+      logger.error('Failed to stop daily recording', {
+        error: error.message
+      });
+    }
+  }
+  
+  /**
+   * 停止单个频道的定时录制
+   */
+  async stopScheduledRecording(channel_id, recordingInfo) {
+    try {
+      logger.info('Stopping scheduled recording', {
+        channel_id,
+        filename: recordingInfo.filename
+      });
+      
+      // 1. 停止FFmpeg进程
+      await this.streamManager.stopChannel(channel_id);
+      
+      // 2. 清理录制心跳
+      this.streamManager.clearRecordingHeartbeat(channel_id);
+      
+      // 3. 更新D1记录状态为completed
+      await this.updateRecordingStatus(channel_id, 'completed');
+      
+      logger.info('Scheduled recording stopped successfully', {
+        channel_id,
+        filename: recordingInfo.filename
+      });
+      
+    } catch (error) {
+      logger.error('Failed to stop scheduled recording', {
+        channel_id,
+        error: error.message
+      });
+    }
+  }
+  
+  /**
+   * 获取启用录制的频道列表（从Workers API）
+   */
+  async getActiveRecordingChannels() {
+    try {
+      const response = await fetch(`${this.workerApiUrl}/api/admin/recording-configs?enabled=true`, {
+        headers: {
+          'X-API-Key': this.apiKey
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API request failed: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      return data.data || [];
+      
+    } catch (error) {
+      logger.error('Failed to get active recording channels', {
+        error: error.message
+      });
+      return [];
+    }
+  }
+  
+  /**
+   * 获取频道配置（从Workers API）
+   */
+  async getChannelConfig(channel_id) {
+    try {
+      const response = await fetch(`${this.workerApiUrl}/api/channels/${channel_id}`, {
+        headers: {
+          'X-API-Key': this.apiKey
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API request failed: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      return data.data;
+      
+    } catch (error) {
+      logger.error('Failed to get channel config', {
+        channel_id,
+        error: error.message
+      });
+      return null;
+    }
+  }
+  
+  /**
+   * 在D1中创建录制记录（通过Workers API）
+   */
+  async createRecordingInD1(recordData) {
+    try {
+      const response = await fetch(`${this.workerApiUrl}/api/admin/recordings`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': this.apiKey
+        },
+        body: JSON.stringify(recordData)
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API request failed: ${response.status}`);
+      }
+      
+      logger.info('Created recording record in D1', {
+        channel_id: recordData.channel_id,
+        filename: recordData.filename
+      });
+      
+    } catch (error) {
+      logger.error('Failed to create recording in D1', {
+        channel_id: recordData.channel_id,
+        error: error.message
+      });
+    }
+  }
+  
+  /**
+   * 更新录制状态（通过Workers API）
+   */
+  async updateRecordingStatus(channel_id, status) {
+    try {
+      const response = await fetch(`${this.workerApiUrl}/api/admin/recordings/${channel_id}/status`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': this.apiKey
+        },
+        body: JSON.stringify({ status })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API request failed: ${response.status}`);
+      }
+      
+      logger.info('Updated recording status', { channel_id, status });
+      
+    } catch (error) {
+      logger.error('Failed to update recording status', {
+        channel_id,
+        error: error.message
+      });
+    }
+  }
+  
+  /**
+   * 定时清理任务（凌晨3点）
+   */
   startCleanupSchedule() {
     const hour = this.cleanupHour;
     cron.schedule(`0 ${hour} * * *`, async () => {
+      logger.info('Starting scheduled cleanup');
       await this.cleanupOldRecordings();
+    });
+    
+    logger.info('Cleanup schedule configured', {
+      time: `${hour}:00`,
+      retentionDays: this.retentionDays
     });
   }
   
-  // 清理过期文件
+  /**
+   * 清理过期文件
+   */
   async cleanupOldRecordings() {
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - this.retentionDays);
-    
-    // 遍历所有频道目录
-    const channels = await fs.readdir(this.recordingsDir);
-    for (const channelDir of channels) {
-      const files = await fs.readdir(path.join(this.recordingsDir, channelDir));
+    try {
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - this.retentionDays);
       
-      for (const file of files) {
-        const filePath = path.join(this.recordingsDir, channelDir, file);
-        const stats = await fs.stat(filePath);
+      logger.info('Cleaning up old recordings', {
+        cutoffDate: cutoffDate.toISOString(),
+        retentionDays: this.retentionDays
+      });
+      
+      let deletedCount = 0;
+      let totalSize = 0;
+      
+      // 遍历所有频道目录
+      const channels = await fs.readdir(this.recordingsDir);
+      
+      for (const channelDir of channels) {
+        const channelPath = path.join(this.recordingsDir, channelDir);
+        const stat = await fs.stat(channelPath);
         
-        if (stats.mtime < cutoffDate) {
-          await fs.unlink(filePath);
-          logger.info('Deleted old recording', { file, age: stats.mtime });
+        if (!stat.isDirectory()) continue;
+        
+        const files = await fs.readdir(channelPath);
+        
+        for (const file of files) {
+          if (!file.endsWith('.mp4')) continue;
+          
+          const filePath = path.join(channelPath, file);
+          const fileStat = await fs.stat(filePath);
+          
+          // 检查文件修改时间
+          if (fileStat.mtime < cutoffDate) {
+            const fileSize = fileStat.size;
+            await fs.unlink(filePath);
+            deletedCount++;
+            totalSize += fileSize;
+            
+            logger.info('Deleted old recording', {
+              channel: channelDir,
+              file,
+              size: fileSize,
+              age: Math.floor((Date.now() - fileStat.mtime.getTime()) / (1000 * 60 * 60 * 24)) + ' days'
+            });
+          }
         }
       }
+      
+      logger.info('Cleanup completed', {
+        deletedCount,
+        totalSize: `${(totalSize / 1024 / 1024 / 1024).toFixed(2)} GB`,
+        cutoffDate: cutoffDate.toISOString()
+      });
+      
+    } catch (error) {
+      logger.error('Failed to cleanup old recordings', {
+        error: error.message
+      });
     }
   }
 }
