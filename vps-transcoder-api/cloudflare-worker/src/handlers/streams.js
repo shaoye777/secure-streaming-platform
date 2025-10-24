@@ -269,17 +269,16 @@ function wrapHlsUrlForCurrentMode(baseHlsUrl, routingInfo, env, userToken) {
     hlsPath = baseHlsUrl.startsWith('/') ? baseHlsUrl : `/${baseHlsUrl}`;
   }
   
-  // 根据路由模式包装URL
-  switch(routingInfo.type) {
-    case 'direct':
-      return `https://yoyoapi.5202021.xyz${hlsPath}?token=${token}`;
-    case 'proxy':
-      return `https://yoyoapi.5202021.xyz/tunnel-proxy${hlsPath}?token=${token}`;
+  // ✅ 只根据前端路径决定URL
+  const frontendPath = routingInfo.frontendPath?.mode || 'direct';
+  
+  switch(frontendPath) {
     case 'tunnel':
       return `https://tunnel-hls.yoyo-vps.5202021.xyz${hlsPath}?token=${token}`;
+    case 'direct':
+      return `https://yoyoapi.5202021.xyz${hlsPath}?token=${token}`;
     default:
-      // 默认使用直连模式
-      console.warn(`未知路由类型 ${routingInfo.type}，使用直连模式`);
+      console.warn(`未知前端路径 ${frontendPath}`);
       return `https://yoyoapi.5202021.xyz${hlsPath}?token=${token}`;
   }
 }
