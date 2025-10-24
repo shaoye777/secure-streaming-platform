@@ -260,20 +260,25 @@ class SimpleStreamManager {
     // 构建FFmpeg命令 - 简化且稳定的配置（基于成功测试）
     const outputFile = path.join(outputDir, 'playlist.m3u8');
     const ffmpegArgs = [
-      // 基本输入配置
+      // 🔥 极速启动输入配置
+      '-fflags', '+nobuffer+flush_packets+genpts',
+      '-flags', 'low_delay',
+      '-analyzeduration', '500000',
+      '-probesize', '500000',
       '-i', rtmpUrl,
 
       // 视频编码 - 简化配置
       '-c:v', 'libx264',
       '-preset', 'ultrafast',
+      '-tune', 'zerolatency',
 
       // 🔥 禁用音频输出 - 避免PCM μ-law转码问题
       '-an',  // 不处理音频流
 
-      // 🔥 HLS输出 - 简化配置
+      // 🔥 HLS输出 - 极速启动配置
       '-f', 'hls',
-      '-hls_time', '2',  // 2秒分片
-      '-hls_list_size', '6',  // 保持6个分片
+      '-hls_time', '0.5',  // 🔥 0.5秒分片，更快生成第一个分片
+      '-hls_list_size', '8',  // 增加到8个分片确保流畅
       '-hls_segment_filename', path.join(outputDir, 'segment%03d.ts'),
       '-hls_allow_cache', '0',  // 禁用缓存
       '-start_number', '0',  // 从0开始编号
@@ -346,8 +351,8 @@ class SimpleStreamManager {
       }
     });
 
-    // 等待流准备就绪 - 使用30秒超时，配合简化的FFmpeg配置
-    await this.waitForStreamReady(channelId, 30000);
+    // 🔥 快速启动 - 使用15秒超时
+    await this.waitForStreamReady(channelId, 15000);
 
     logger.info('FFmpeg process started successfully', { channelId, pid: ffmpegProcess.pid });
     return ffmpegProcess;
@@ -419,7 +424,7 @@ class SimpleStreamManager {
    * @param {string} channelId - 频道ID
    * @param {number} timeout - 超时时间（毫秒）
    */
-  async waitForStreamReady(channelId, timeout = 30000) {
+  async waitForStreamReady(channelId, timeout = 15000) {
     const outputDir = path.join(this.hlsOutputDir, channelId);
     const playlistFile = path.join(outputDir, 'playlist.m3u8');
 
@@ -432,9 +437,9 @@ class SimpleStreamManager {
         try {
           const content = fs.readFileSync(playlistFile, 'utf8');
 
-          // 🔥 优化：检查playlist文件是否包含有效的HLS内容
-          if (content.includes('#EXTM3U') && content.includes('#EXT-X-VERSION')) {
-            logger.info('Stream ready - valid HLS playlist detected', {
+          // 🔥 快速启动优化：只要playlist有#EXTM3U头就立即返回
+          if (content.includes('#EXTM3U') && content.length > 0) {
+            logger.info('Stream ready - valid HLS playlist detected (fast start mode)', {
               channelId,
               contentLength: content.length,
               elapsed: Date.now() - startTime
