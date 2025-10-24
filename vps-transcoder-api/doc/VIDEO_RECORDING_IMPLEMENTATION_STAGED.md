@@ -401,35 +401,102 @@ async startWatching(channelId, rtmpUrl, options = {}) {
 
 **核心修改**：支持FFmpeg多输出（HLS + MP4分段录制）
 
+⚠️ **基于当前项目可用配置进行修改**（行253-283）
+
 ```javascript
 async spawnFFmpegProcess(channelId, rtmpUrl, options = {}) {
-  const ffmpegArgs = ['-i', rtmpUrl];
+  // 创建HLS输出目录
+  const outputDir = path.join(this.hlsOutputDir, channelId);
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir, { recursive: true });
+  }
+  
+  const outputFile = path.join(outputDir, 'playlist.m3u8');
+  const ffmpegArgs = [
+    // 基本输入配置
+    '-i', rtmpUrl
+  ];
   
   if (options.recordingConfig?.enabled) {
-    // 输出1: HLS流
+    // 录制模式：双输出（HLS + MP4）
+    
+    // 输出1: HLS流（现有配置，已验证可用）
     ffmpegArgs.push(
-      '-map', '0:v:0',
-      '-c:v:0', 'libx264', '-preset:v:0', 'ultrafast', '-an',
-      '-f', 'hls', '-hls_time', '2',
-      // ... HLS参数
+      '-c:v', 'libx264',
+      '-preset', 'ultrafast',
+      '-an',  // 禁用音频（避免PCM μ-law转码问题）
+      '-f', 'hls',
+      '-hls_time', '2',
+      '-hls_list_size', '6',
+      '-hls_segment_filename', path.join(outputDir, 'segment%03d.ts'),
+      '-hls_allow_cache', '0',
+      '-start_number', '0',
+      '-y',
+      outputFile
     );
     
     // 输出2: MP4分段录制
+    const recordingDir = `/var/recordings/${channelId}`;
+    if (!fs.existsSync(recordingDir)) {
+      fs.mkdirSync(recordingDir, { recursive: true });
+    }
+    
     const segmentDuration = options.recordingConfig.segment_duration || 3600;
     ffmpegArgs.push(
-      '-map', '0:v:0',
-      '-c:v:1', 'libx264', '-preset:v:1', 'medium', '-an',
-      '-f', 'segment', '-segment_time', segmentDuration,
+      '-c:v', 'libx264',
+      '-preset', 'medium',
+      '-an',  // 同样禁用音频保持一致
+      '-f', 'segment',
+      '-segment_time', segmentDuration,
       '-strftime', '1',
-      '-segment_filename', `/var/recordings/${channelId}/%Y-%m-%d_%H-%M-%S.mp4`
+      '-segment_filename', `${recordingDir}/%Y-%m-%d_%H-%M-%S.mp4`,
+      '-reset_timestamps', '1',
+      '-y'
     );
   } else {
-    // 只输出HLS（现有逻辑）
+    // 只输出HLS（现有逻辑，已验证可用）
+    ffmpegArgs.push(
+      '-c:v', 'libx264',
+      '-preset', 'ultrafast',
+      '-an',
+      '-f', 'hls',
+      '-hls_time', '2',
+      '-hls_list_size', '6',
+      '-hls_segment_filename', path.join(outputDir, 'segment%03d.ts'),
+      '-hls_allow_cache', '0',
+      '-start_number', '0',
+      '-y',
+      outputFile
+    );
   }
   
-  return spawn(this.ffmpegPath, ffmpegArgs, {env});
+  // 检查代理状态并设置环境变量（保留现有逻辑）
+  const env = { ...process.env };
+  try {
+    const { execSync } = require('child_process');
+    const result = execSync('ps aux | grep v2ray | grep -v grep', { encoding: 'utf8' });
+    if (result.trim()) {
+      env.http_proxy = 'socks5://127.0.0.1:1080';
+      env.https_proxy = 'socks5://127.0.0.1:1080';
+    }
+  } catch (error) {
+    // 使用直连
+  }
+  
+  return spawn(this.ffmpegPath, ffmpegArgs, {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    detached: false,
+    env: env
+  });
 }
 ```
+
+**关键修改点** ✅：
+1. ✅ 使用正确的FFmpeg参数语法：`-c:v`, `-preset`（而不是错误的`-c:v:0`, `-preset:v:0`）
+2. ✅ 基于当前项目已验证可用的配置
+3. ✅ 保留音频禁用（`-an`）避免PCM转码问题
+4. ✅ 保留代理检测逻辑
+5. ✅ 双输出时HLS和录制使用相同的音频处理策略
 
 ### 2.3 新增辅助方法
 
