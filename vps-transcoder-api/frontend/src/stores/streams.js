@@ -51,111 +51,14 @@ export const useStreamsStore = defineStore('streams', () => {
       })
       
       if (response.data.status === 'success') {
-        // 从SimpleStreamManager响应中获取数据
+        // ✅ 双维度路由：直接使用后端返回的HLS URL
         const data = response.data.data
-        let hlsUrl = data.hlsUrl
+        const hlsUrl = data.hlsUrl
         
-        // 🔥 根据tunnel_config选择最优HLS端点
-        if (hlsUrl && hlsUrl.includes('yoyo-vps.5202021.xyz')) {
-          const streamPath = hlsUrl.match(/\/hls\/([^\/]+\/[^\/]+)$/);
-          if (streamPath) {
-            // 读取隧道配置
-            const tunnelConfigStr = localStorage.getItem('tunnel_config');
-            let useWorkerProxy = false;
-            let tunnelBaseURL = 'https://yoyoapi.5202021.xyz';
-            
-            if (tunnelConfigStr) {
-              try {
-                const tunnelConfig = JSON.parse(tunnelConfigStr);
-                if (tunnelConfig.enabled) {
-                  if (tunnelConfig.useWorkerProxy) {
-                    // 使用Workers代理模式
-                    useWorkerProxy = true;
-                    tunnelBaseURL = tunnelConfig.api?.baseURL || 'https://yoyoapi.5202021.xyz';
-                    console.log('🔄 使用Workers隧道代理（解决SSL问题）');
-                  } else {
-                    // 使用直接隧道模式
-                    tunnelBaseURL = tunnelConfig.api?.baseURL || 'https://tunnel-hls.yoyo-vps.5202021.xyz';
-                    console.log('🚀 使用隧道优化端点');
-                  }
-                } else {
-                  // 隧道禁用，检查代理配置和实际连接状态
-                  const proxyConfigStr = localStorage.getItem('proxy_config');
-                  let proxyActuallyConnected = false;
-                  
-                  if (proxyConfigStr) {
-                    try {
-                      const proxyConfig = JSON.parse(proxyConfigStr);
-                      
-                      // 🔥 关键修复：检查代理实际连接状态
-                      if (proxyConfig.enabled && proxyConfig.activeProxyId) {
-                        // 检查VPS实际代理状态
-                        try {
-                          const proxyStatusResponse = await axios.get('/api/admin/proxy/status');
-                          const proxyStatus = proxyStatusResponse.data?.data;
-                          
-                          if (proxyStatus?.connectionStatus === 'connected' && proxyStatus?.currentProxy) {
-                            proxyActuallyConnected = true;
-                            console.log('✅ 代理已连接，使用代理模式');
-                          } else {
-                            console.log('⚠️ 代理配置已启用但未实际连接，降级到直连模式');
-                          }
-                        } catch (statusError) {
-                          console.log('⚠️ 无法获取代理状态，降级到直连模式:', statusError.message);
-                        }
-                      }
-                      
-                      if (proxyActuallyConnected) {
-                        // 代理实际已连接，使用Workers代理模式
-                        useWorkerProxy = true;
-                        tunnelBaseURL = 'https://yoyoapi.5202021.xyz';
-                        console.log('🔄 使用代理模式（透明代理）');
-                      } else {
-                        // 代理未连接或配置禁用，使用直连模式
-                        tunnelBaseURL = 'https://yoyo-vps.5202021.xyz';
-                        console.log('🔗 使用直连模式');
-                      }
-                    } catch (e) {
-                      // 代理配置解析失败，使用直连模式
-                      tunnelBaseURL = 'https://yoyo-vps.5202021.xyz';
-                      console.log('🔗 使用直连模式（代理配置解析失败）');
-                    }
-                  } else {
-                    // 无代理配置，使用直连模式
-                    tunnelBaseURL = 'https://yoyo-vps.5202021.xyz';
-                    console.log('🔗 使用直连模式（无代理配置）');
-                  }
-                }
-              } catch (e) {
-                console.warn('⚠️ 隧道配置解析失败，使用默认配置');
-              }
-            }
-            
-            // 构建最终HLS URL
-            const authToken = localStorage.getItem('auth_token');
-            const videoToken = localStorage.getItem('video_token');
-            const token = videoToken || authToken;
-            
-            if (useWorkerProxy) {
-              // Workers代理模式：通过/tunnel-proxy/路径
-              hlsUrl = `${tunnelBaseURL}/tunnel-proxy/hls/${streamPath[1]}${token ? `?token=${token}` : ''}`;
-              console.log('🎯 使用JWT Token进行HLS认证 (零KV读取)');
-            } else {
-              // 直接隧道或直连模式
-              hlsUrl = `${tunnelBaseURL}/hls/${streamPath[1]}${token ? `?token=${token}` : ''}`;
-              if (videoToken) {
-                console.log('🎯 使用JWT Token进行HLS认证 (零KV读取)');
-              } else {
-                console.log('⚠️ JWT Token不存在，降级到会话token');
-              }
-            }
-          }
-        }
-        
-        console.log('🔥 HLS URL处理结果:', { 
-          original: data.hlsUrl, 
-          processed: hlsUrl,
-          channelId: streamId 
+        console.log('✅ 使用后端双维度路由返回的HLS URL:', { 
+          hlsUrl: hlsUrl,
+          routingMode: data.routingMode,
+          routingReason: data.routingReason
         });
         
         // 解析双维度路由信息
