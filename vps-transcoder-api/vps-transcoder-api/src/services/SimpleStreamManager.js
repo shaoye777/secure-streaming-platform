@@ -263,8 +263,8 @@ class SimpleStreamManager {
       // 🔥 极速启动输入配置
       '-fflags', '+nobuffer+flush_packets+genpts',
       '-flags', 'low_delay',
-      '-analyzeduration', '500000',
-      '-probesize', '500000',
+      '-analyzeduration', '100000',  // 极度减小分析时间
+      '-probesize', '100000',        // 极度减小探测大小
       '-i', rtmpUrl,
 
       // 视频编码 - 简化配置
@@ -277,8 +277,9 @@ class SimpleStreamManager {
 
       // 🔥 HLS输出 - 极速启动配置
       '-f', 'hls',
-      '-hls_time', '0.5',  // 🔥 0.5秒分片，更快生成第一个分片
-      '-hls_list_size', '8',  // 增加到8个分片确保流畅
+      '-hls_time', '1',  // 1秒分片（0.5秒可能太小导致问题）
+      '-hls_list_size', '3',  // 最小列表size加快启动
+      '-hls_flags', 'delete_segments+omit_endlist',  // 立即开始输出
       '-hls_segment_filename', path.join(outputDir, 'segment%03d.ts'),
       '-hls_allow_cache', '0',  // 禁用缓存
       '-start_number', '0',  // 从0开始编号
@@ -351,8 +352,8 @@ class SimpleStreamManager {
       }
     });
 
-    // 🔥 快速启动 - 使用15秒超时
-    await this.waitForStreamReady(channelId, 15000);
+    // 🔥 极速启动 - 使用5秒超时
+    await this.waitForStreamReady(channelId, 5000);
 
     logger.info('FFmpeg process started successfully', { channelId, pid: ffmpegProcess.pid });
     return ffmpegProcess;
@@ -424,7 +425,7 @@ class SimpleStreamManager {
    * @param {string} channelId - 频道ID
    * @param {number} timeout - 超时时间（毫秒）
    */
-  async waitForStreamReady(channelId, timeout = 15000) {
+  async waitForStreamReady(channelId, timeout = 5000) {
     const outputDir = path.join(this.hlsOutputDir, channelId);
     const playlistFile = path.join(outputDir, 'playlist.m3u8');
 
