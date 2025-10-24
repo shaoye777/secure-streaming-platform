@@ -448,6 +448,21 @@ async startWatching(channelId, rtmpUrl, options = {}) {
 
 **核心修改**：支持FFmpeg多输出（HLS + MP4分段录制）
 
+⚠️ **关键设计决策**：录制时始终同时输出HLS和MP4
+
+**📊 3种输出模式说明**：
+```javascript
+// 场景1: 用户观看+录制 → HLS + MP4
+// 场景2: 只有用户观看 → 只HLS
+// 场景3: 只有录制（定时任务）→ HLS + MP4 ⭐
+//        关键原因：防止用户半路加入需要重启进程
+//        如果定时录制时不输出HLS，用户加入时需要：
+//        1. 停止当前FFmpeg进程
+//        2. 重启并添加HLS输出
+//        3. 导致录制中断 + 用户等待7秒
+//        解决方案：录制时始终输出HLS，用户加入时无需重启
+```
+
 ⚠️ **基于当前项目可用配置进行修改**（行253-283）
 
 ```javascript
@@ -466,6 +481,7 @@ async spawnFFmpegProcess(channelId, rtmpUrl, options = {}) {
   
   if (options.recordingConfig?.enabled) {
     // 录制模式：双输出（HLS + MP4）
+    // 🔥 关键：始终同时输出HLS，避免用户加入时需要重启
     
     // 输出1: HLS流（现有配置，已验证可用）
     ffmpegArgs.push(
@@ -751,12 +767,79 @@ async stopChannel(channelId) {
 }
 ```
 
-### 2.7 部署到VPS
+### 2.7 新增API路由 - 配置变更通知端点
+
+⚠️ **关键API**：Workers修改配置后通知VPS应用新配置
+
+**修改文件**: `vps-transcoder-api/src/routes/simple-stream.js`
+
+在路由文件中添加新的API端点：
+
+```javascript
+/**
+ * 录制配置变更通知端点
+ * Workers在管理员修改配置后调用此API通知VPS
+ */
+router.post('/api/simple-stream/recording-config-changed', async (req, res) => {
+  const { channelId, recordingConfig, channelConfig } = req.body;
+  
+  logger.info('Received recording config change notification', {
+    channelId,
+    enabled: recordingConfig?.enabled,
+    startTime: recordingConfig?.start_time,
+    endTime: recordingConfig?.end_time
+  });
+  
+  try {
+    // 调用SimpleStreamManager处理配置变更
+    const result = await simpleStreamManager.handleRecordingConfigChange(
+      channelId,
+      recordingConfig,
+      channelConfig
+    );
+    
+    res.json({
+      status: 'success',
+      data: result
+    });
+    
+    logger.info('Recording config change handled successfully', {
+      channelId,
+      action: result.action
+    });
+    
+  } catch (error) {
+    logger.error('Failed to handle recording config change', {
+      channelId,
+      error: error.message,
+      stack: error.stack
+    });
+    
+    res.status(500).json({
+      status: 'error',
+      message: error.message
+    });
+  }
+});
+```
+
+**API说明**:
+- **请求参数**:
+  - `channelId`: 频道ID
+  - `recordingConfig`: 新的录制配置
+  - `channelConfig`: 频道基础配置（包含rtmpUrl）
+- **返回值**:
+  - `action`: 执行的操作（restarted/pre-started/none）
+  - `message`: 操作说明
+  - `impactSeconds`: 影响时长（如果需要重启）
+
+### 2.8 部署到VPS
 
 ```bash
 # 提交代码
 git add vps-transcoder-api/src/services/SimpleStreamManager.js
-git commit -m "feat: SimpleStreamManager支持录制功能"
+git add vps-transcoder-api/src/routes/simple-stream.js
+git commit -m "feat: SimpleStreamManager支持录制功能，新增配置变更API"
 git push
 
 # 部署到VPS
@@ -1183,18 +1266,358 @@ ssh root@142.171.75.220 "ls -la /var/recordings/stream_xxx/"
 
 **关键方法**：
 ```javascript
+const fs = require('fs').promises;
+const path = require('path');
+const { exec } = require('child_process');
+const util = require('util');
+const execAsync = util.promisify(exec);
+const logger = require('../utils/logger');
+
 class RecordingRecoveryManager {
-  // 启动时执行恢复
-  async recoverOnStartup() { /* ... */ }
+  constructor() {
+    this.recordingsDir = process.env.RECORDINGS_BASE_DIR || '/var/recordings';
+    this.workerApiUrl = process.env.WORKER_API_URL || 'https://yoyoapi.5202021.xyz';
+    this.apiKey = process.env.VPS_API_KEY;
+  }
   
-  // 处理临时文件
-  async processTempFiles() { /* ... */ }
+  /**
+   * 启动时执行恢复流程
+   * 核心思路：自动检测并修复所有损坏的录制文件
+   */
+  async recoverOnStartup() {
+    logger.info('Starting recording recovery process...');
+    
+    try {
+      // 🔍 步骤0: 处理临时文件（重命名为标准格式）
+      await this.processTempFiles();
+      
+      // 🔍 步骤1: 从D1数据库查询所有未完成的录制
+      const interruptedRecordings = await this.getInterruptedRecordings();
+      
+      logger.info(`Found ${interruptedRecordings.length} interrupted recordings`);
+      
+      // 🔧 步骤2: 遍历每个未完成的录制文件
+      for (const recording of interruptedRecordings) {
+        const filePath = recording.file_path;
+        
+        // 检查文件是否存在
+        if (!await this.fileExists(filePath)) {
+          logger.warn('Recording file not found', { filePath });
+          await this.markAsCorrupted(recording.id, 'File not found');
+          continue;
+        }
+        
+        // 步骤3: 验证文件完整性
+        const isValid = await this.validateMP4File(filePath);
+        
+        if (!isValid) {
+          logger.info('File needs repair', { filePath });
+          
+          // 步骤4: 尝试修复损坏文件
+          const repaired = await this.repairMP4WithRecovery(filePath);
+          
+          if (repaired) {
+            await this.markAsRepaired(recording.id);
+            logger.info('File repaired successfully', { filePath });
+          } else {
+            await this.markAsCorrupted(recording.id, 'Repair failed');
+            logger.error('Failed to repair file', { filePath });
+          }
+        } else {
+          // 文件完好，更新状态为completed
+          await this.markAsCompleted(recording.id);
+          logger.info('File is valid', { filePath });
+        }
+      }
+      
+      logger.info('Recovery process completed');
+      
+    } catch (error) {
+      logger.error('Recovery process failed', {
+        error: error.message,
+        stack: error.stack
+      });
+    }
+  }
   
-  // 获取中断的录制
-  async getInterruptedRecordings() { /* ... */ }
+  /**
+   * 处理临时文件（重命名为标准格式）
+   * 关键：服务启动时，上次录制可能留下了临时文件
+   */
+  async processTempFiles() {
+    logger.info('Processing temporary files...');
+    
+    try {
+      const channels = await fs.readdir(this.recordingsDir);
+      let processedCount = 0;
+      
+      for (const channelDir of channels) {
+        const channelPath = path.join(this.recordingsDir, channelDir);
+        const stat = await fs.stat(channelPath);
+        
+        if (!stat.isDirectory()) continue;
+        
+        const files = await fs.readdir(channelPath);
+        
+        // 查找所有临时文件（包含_temp或.tmp的文件）
+        const tempFiles = files.filter(f => 
+          f.includes('_temp.mp4') || f.includes('.tmp')
+        );
+        
+        for (const tempFile of tempFiles) {
+          const tempPath = path.join(channelPath, tempFile);
+          
+          logger.info('Found temp file', { 
+            channel: channelDir, 
+            file: tempFile 
+          });
+          
+          // 验证文件完整性
+          const isValid = await this.validateMP4File(tempPath);
+          
+          if (isValid) {
+            // 生成标准文件名
+            const fileStat = await fs.stat(tempPath);
+            const standardName = this.generateStandardFilename(fileStat.birthtime);
+            const finalPath = path.join(channelPath, standardName);
+            
+            // 重命名为标准格式
+            await fs.rename(tempPath, finalPath);
+            
+            // 创建D1记录
+            await this.createRecordingInD1({
+              channel_id: channelDir,
+              filename: standardName,
+              file_path: finalPath,
+              file_size: fileStat.size,
+              status: 'completed',
+              start_time: fileStat.birthtime.toISOString(),
+              end_time: fileStat.mtime.toISOString()
+            });
+            
+            processedCount++;
+            logger.info('Processed temp file', { 
+              temp: tempFile, 
+              renamed: standardName 
+            });
+            
+          } else {
+            // 文件损坏，尝试修复
+            logger.warn('Temp file is corrupted, attempting repair', { 
+              file: tempFile 
+            });
+            
+            const repaired = await this.repairMP4WithRecovery(tempPath);
+            
+            if (repaired) {
+              // 修复成功，重命名
+              const fileStat = await fs.stat(tempPath);
+              const standardName = this.generateStandardFilename(fileStat.birthtime);
+              const finalPath = path.join(channelPath, standardName);
+              
+              await fs.rename(tempPath, finalPath);
+              await this.createRecordingInD1({
+                channel_id: channelDir,
+                filename: standardName,
+                file_path: finalPath,
+                file_size: fileStat.size,
+                status: 'completed',
+                needs_repair: true,
+                start_time: fileStat.birthtime.toISOString(),
+                end_time: fileStat.mtime.toISOString()
+              });
+              
+              processedCount++;
+              logger.info('Repaired and processed temp file', { 
+                temp: tempFile, 
+                renamed: standardName 
+              });
+            } else {
+              // 修复失败，标记为损坏
+              logger.error('Failed to repair temp file', { file: tempFile });
+            }
+          }
+        }
+      }
+      
+      logger.info('Temp file processing completed', { 
+        processedCount 
+      });
+      
+    } catch (error) {
+      logger.error('Failed to process temp files', {
+        error: error.message
+      });
+    }
+  }
   
-  // 验证MP4文件
-  async validateMP4File(filePath) { /* ... */ }
+  /**
+   * 生成标准文件名
+   * 格式: YYYY-MM-DD_HH-MM-SS.mp4
+   */
+  generateStandardFilename(date) {
+    const d = new Date(date);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const hour = String(d.getHours()).padStart(2, '0');
+    const minute = String(d.getMinutes()).padStart(2, '0');
+    const second = String(d.getSeconds()).padStart(2, '0');
+    
+    return `${year}-${month}-${day}_${hour}-${minute}-${second}.mp4`;
+  }
+  
+  /**
+   * 获取中断的录制（从D1数据库）
+   * 查询所有status为'recording'的记录
+   */
+  async getInterruptedRecordings() {
+    try {
+      const response = await fetch(
+        `${this.workerApiUrl}/api/recording/files/interrupted`,
+        {
+          headers: {
+            'X-API-Key': this.apiKey
+          }
+        }
+      );
+      
+      if (!response.ok) {
+        throw new Error(`API request failed: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      return data.data || [];
+      
+    } catch (error) {
+      logger.error('Failed to get interrupted recordings', {
+        error: error.message
+      });
+      return [];
+    }
+  }
+  
+  /**
+   * 检查文件是否存在
+   */
+  async fileExists(filePath) {
+    try {
+      await fs.access(filePath);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  
+  /**
+   * 验证MP4文件完整性
+   * 使用ffprobe检查文件是否可以正常解析
+   */
+  async validateMP4File(filePath) {
+    try {
+      const { stdout } = await execAsync(
+        `ffprobe -v error -show_format -show_streams "${filePath}"`,
+        { timeout: 10000 }
+      );
+      
+      // 检查是否包含基本的格式信息
+      return stdout.includes('[FORMAT]') && stdout.includes('[STREAM]');
+      
+    } catch (error) {
+      logger.debug('File validation failed', { 
+        filePath, 
+        error: error.message 
+      });
+      return false;
+    }
+  }
+  
+  /**
+   * 在D1中创建录制记录
+   */
+  async createRecordingInD1(recordData) {
+    try {
+      const response = await fetch(
+        `${this.workerApiUrl}/api/recording/files`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-API-Key': this.apiKey
+          },
+          body: JSON.stringify(recordData)
+        }
+      );
+      
+      if (!response.ok) {
+        throw new Error(`API request failed: ${response.status}`);
+      }
+      
+      logger.info('Created recording in D1', {
+        channel_id: recordData.channel_id,
+        filename: recordData.filename
+      });
+      
+    } catch (error) {
+      logger.error('Failed to create recording in D1', {
+        channel_id: recordData.channel_id,
+        error: error.message
+      });
+    }
+  }
+  
+  /**
+   * 标记文件为已修复
+   */
+  async markAsRepaired(recordingId) {
+    await this.updateRecordingStatus(recordingId, 'completed', 'repaired');
+  }
+  
+  /**
+   * 标记文件为已完成
+   */
+  async markAsCompleted(recordingId) {
+    await this.updateRecordingStatus(recordingId, 'completed', null);
+  }
+  
+  /**
+   * 标记文件为损坏
+   */
+  async markAsCorrupted(recordingId, reason) {
+    await this.updateRecordingStatus(recordingId, 'corrupted', reason);
+  }
+  
+  /**
+   * 更新录制状态
+   */
+  async updateRecordingStatus(recordingId, status, repairStatus) {
+    try {
+      const response = await fetch(
+        `${this.workerApiUrl}/api/recording/files/${recordingId}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-API-Key': this.apiKey
+          },
+          body: JSON.stringify({
+            status,
+            repair_status: repairStatus
+          })
+        }
+      );
+      
+      if (!response.ok) {
+        throw new Error(`API request failed: ${response.status}`);
+      }
+      
+    } catch (error) {
+      logger.error('Failed to update recording status', {
+        recordingId,
+        error: error.message
+      });
+    }
+  }
   
   // 修复文件（三级策略 + 文件保护机制）
   async repairMP4WithRecovery(filePath) {
