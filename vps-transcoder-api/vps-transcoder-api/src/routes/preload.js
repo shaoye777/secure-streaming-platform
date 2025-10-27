@@ -1,11 +1,15 @@
 const express = require('express');
 const router = express.Router();
 const logger = require('../utils/logger');
+const authMiddleware = require('../middleware/auth');
 
 /**
  * 预加载路由
  * 提供工作日状态查询等功能
  */
+
+// 🔐 添加API认证中间件到所有预加载路由
+router.use(authMiddleware);
 
 /**
  * GET /api/preload/workday-status
