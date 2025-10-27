@@ -165,9 +165,10 @@ async function handleRequest(request, env, ctx) {
             newHeaders.set(key, value);
           });
           
-          // 添加代理标识头
-          newHeaders.set('X-Proxy-Via', 'cloudflare-workers');
+          // 添加代理标识头（按DUAL_DIMENSION_ROUTING_ARCHITECTURE.md标准）
+          newHeaders.set('X-Proxied-By', 'Workers-Tunnel-Proxy');  // 设计文档标准字段
           newHeaders.set('X-Proxy-Channel', channelId);
+          newHeaders.set('Access-Control-Expose-Headers', 'X-Proxied-By, X-Proxy-Channel');
           
           return new Response(vpsResponse.body, {
             status: vpsResponse.status,
@@ -453,25 +454,30 @@ async function handleRequest(request, env, ctx) {
         
         const responseData = await vpsResponse.json();
         
-        // 🎯 根据隧道配置调整HLS URL（前端通过URL推断模式）
+        // 🎯 根据隧道配置调整HLS URL并添加路由信息（按设计文档）
         if (responseData.status === 'success' && responseData.data && responseData.data.hlsUrl) {
           const vpsHlsUrl = responseData.data.hlsUrl;
           
           if (tunnelEnabled) {
             // 隧道模式：转换为Workers代理URL
-            // 前端会根据 /tunnel-proxy/ 路径自动识别为"Workers代理模式"
-            // 转换: https://yoyo-vps.5202021.xyz/hls/channelId/playlist.m3u8
-            // 到:    https://yoyoapi.5202021.xyz/tunnel-proxy/hls/channelId/playlist.m3u8
             const match = vpsHlsUrl.match(/\/hls\/(.+)/);
             if (match) {
               const hlsPath = match[1]; // channelId/playlist.m3u8
               responseData.data.hlsUrl = `https://yoyoapi.5202021.xyz/tunnel-proxy/hls/${hlsPath}`;
-              console.log('✅ Tunnel enabled, using Workers proxy:', responseData.data.hlsUrl);
+              
+              // 添加路由信息字段（按DUAL_DIMENSION_ROUTING_ARCHITECTURE.md设计）
+              responseData.data.routingMode = 'tunnel+direct';
+              responseData.data.routingReason = 'Workers通过Tunnel访问VPS | VPS直连RTMP源';
+              responseData.message = 'Started watching successfully via tunnel+direct mode';
+              
+              console.log('✅ Tunnel mode:', responseData.data.routingMode);
             }
           } else {
             // 直连模式：保持VPS URL
-            // 前端会根据 yoyo-vps.5202021.xyz 域名自动识别为"VPS直连模式"
-            console.log('✅ Direct mode, using VPS direct URL:', responseData.data.hlsUrl);
+            responseData.data.routingMode = 'direct+direct';
+            responseData.data.routingReason = '浏览器直连VPS | VPS直连RTMP源';
+            
+            console.log('✅ Direct mode:', responseData.data.routingMode);
           }
         }
         
