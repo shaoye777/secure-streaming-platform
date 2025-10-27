@@ -911,73 +911,114 @@ async function handleRequest(request, env, ctx) {
       });
     }
 
-    // 隧道配置API端点
+    // 隧道配置API端点 - 从KV读取
     if (path === '/api/admin/tunnel/config' && method === 'GET') {
-      return new Response(JSON.stringify({
-        status: 'success',
-        data: {
+      try {
+        // 从KV读取隧道配置
+        const tunnelConfigData = await env.YOYO_USER_DB.get('tunnel_config');
+        let tunnelConfig = {
           enabled: false,
-          useWorkerProxy: false,
-          description: '隧道优化已禁用',
-          updatedAt: new Date().toISOString(),
-          endpoints: {
-            tunnel: {
-              api: 'tunnel-api.yoyo-vps.5202021.xyz',
-              hls: 'tunnel-hls.yoyo-vps.5202021.xyz',
-              health: 'tunnel-health.yoyo-vps.5202021.xyz',
-              status: 'ready',
-              lastCheck: new Date().toISOString(),
-              responseTime: '245ms'
-            },
-            direct: {
-              api: 'yoyo-vps.5202021.xyz',
-              hls: 'yoyo-vps.5202021.xyz',
-              health: 'yoyo-vps.5202021.xyz',
-              status: 'healthy',
-              lastCheck: new Date().toISOString(),
-              responseTime: '156ms'
-            }
-          },
-          performance: {
-            tunnel: {
-              latency: '200-500ms',
-              stability: '85-95%',
-              optimization: '60-75%'
-            },
-            direct: {
-              latency: '800-2000ms',
-              stability: '60-70%',
-              optimization: '0%'
-            }
+          useWorkerProxy: false
+        };
+        
+        if (tunnelConfigData) {
+          try {
+            const parsedConfig = JSON.parse(tunnelConfigData);
+            tunnelConfig = {
+              enabled: parsedConfig.enabled || false,
+              useWorkerProxy: parsedConfig.useWorkerProxy || false
+            };
+          } catch (e) {
+            console.error('Failed to parse tunnel config:', e);
           }
         }
-      }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      });
+        
+        return new Response(JSON.stringify({
+          status: 'success',
+          data: {
+            enabled: tunnelConfig.enabled,
+            useWorkerProxy: tunnelConfig.useWorkerProxy,
+            description: tunnelConfig.enabled ? '隧道优化已启用' : '隧道优化已禁用',
+            updatedAt: new Date().toISOString(),
+            endpoints: {
+              tunnel: {
+                api: 'tunnel-api.yoyo-vps.5202021.xyz',
+                hls: 'tunnel-hls.yoyo-vps.5202021.xyz',
+                health: 'tunnel-health.yoyo-vps.5202021.xyz',
+                status: 'ready',
+                lastCheck: new Date().toISOString(),
+                responseTime: '245ms'
+              },
+              direct: {
+                api: 'yoyo-vps.5202021.xyz',
+                hls: 'yoyo-vps.5202021.xyz',
+                health: 'yoyo-vps.5202021.xyz',
+                status: 'healthy',
+                lastCheck: new Date().toISOString(),
+                responseTime: '156ms'
+              }
+            },
+            performance: {
+              tunnel: {
+                latency: '200-500ms',
+                stability: '85-95%',
+                optimization: '60-75%'
+              },
+              direct: {
+                latency: '800-2000ms',
+                stability: '60-70%',
+                optimization: '0%'
+              }
+            }
+          }
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json', ...corsHeaders }
+        });
+      } catch (error) {
+        console.error('Failed to get tunnel config:', error);
+        return new Response(JSON.stringify({
+          status: 'error',
+          message: 'Failed to get tunnel config: ' + error.message
+        }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json', ...corsHeaders }
+        });
+      }
     }
 
-    // 隧道配置更新API端点
+    // 隧道配置更新API端点 - 保存到KV
     if (path === '/api/admin/tunnel/config' && method === 'PUT') {
-      const body = await request.json();
-      
-      return new Response(JSON.stringify({
-        status: 'success',
-        data: {
-          status: 'manual_deployment_required',
-          message: '隧道配置已更新，需要手动部署',
-          note: '由于安全限制，需要手动部署Workers代理',
-          enabled: body.enabled,
-          manualSteps: [
-            '打开终端并进入cloudflare-worker目录',
-            '运行: wrangler deploy --env production',
-            '等待部署完成并验证功能'
-          ]
-        }
-      }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      });
+      try {
+        const body = await request.json();
+        
+        // 保存隧道配置到KV
+        const tunnelConfig = {
+          enabled: body.enabled || false,
+          useWorkerProxy: body.useWorkerProxy || false,
+          updatedAt: new Date().toISOString()
+        };
+        
+        await env.YOYO_USER_DB.put('tunnel_config', JSON.stringify(tunnelConfig));
+        
+        return new Response(JSON.stringify({
+          status: 'success',
+          message: '隧道配置已更新并立即生效',
+          data: tunnelConfig
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json', ...corsHeaders }
+        });
+      } catch (error) {
+        console.error('Failed to update tunnel config:', error);
+        return new Response(JSON.stringify({
+          status: 'error',
+          message: 'Failed to update tunnel config: ' + error.message
+        }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json', ...corsHeaders }
+        });
+      }
     }
 
     if (path === '/api/admin/vps/health' && method === 'GET') {
