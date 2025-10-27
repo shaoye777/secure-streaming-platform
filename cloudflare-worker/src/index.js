@@ -792,7 +792,8 @@ async function handleRequest(request, env, ctx) {
             name: channelData?.name || config.name,
             rtmpUrl: channelData?.rtmpUrl || defaultRtmpUrls[id] || `rtmp://push228.dodool.com.cn/55/3?auth_key=1413753727-0-0-bef639f07f6ddabacfa0213594fa659b`,
             sortOrder: channelData?.sortOrder || config.order,
-            createdAt: channelData?.updatedAt || '2025-10-03T12:00:00Z'
+            createdAt: channelData?.updatedAt || '2025-10-03T12:00:00Z',
+            preloadConfig: channelData?.preloadConfig || null  // ✨ 添加预加载配置
           });
         }
 
