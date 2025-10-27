@@ -5,31 +5,33 @@
 
 /**
  * 获取单个频道的预加载配置
+ * 🆕 从频道配置中读取preloadConfig
  */
 async function getPreloadConfig(env, channelId) {
   try {
-    const key = `PRELOAD_CONFIG:${channelId}`;
-    const config = await env.YOYO_USER_DB.get(key, { type: 'json' });
+    // 🆕 从频道配置中读取
+    const channelKey = `channel:${channelId}`;
+    const channelData = await env.YOYO_USER_DB.get(channelKey, { type: 'json' });
     
-    if (!config) {
+    if (channelData?.preloadConfig) {
       return {
         status: 'success',
         data: {
           channelId,
-          enabled: false,
-          startTime: '07:00',
-          endTime: '17:30',
-          workdaysOnly: false  // 🆕 默认值：不限制工作日
+          ...channelData.preloadConfig
         }
       };
     }
     
-    // 🆕 确保返回的配置包含workdaysOnly字段（向后兼容）
+    // 返回默认配置
     return {
       status: 'success',
       data: {
-        ...config,
-        workdaysOnly: config.workdaysOnly ?? false
+        channelId,
+        enabled: false,
+        startTime: '07:00',
+        endTime: '17:30',
+        workdaysOnly: false
       }
     };
   } catch (error) {
@@ -43,17 +45,21 @@ async function getPreloadConfig(env, channelId) {
 
 /**
  * 获取所有频道的预加载配置（批量）
+ * 🆕 遍历所有频道配置读取preloadConfig
  */
 async function getAllPreloadConfigs(env) {
   try {
-    // 列出所有PRELOAD_CONFIG:*的键
-    const listResult = await env.YOYO_USER_DB.list({ prefix: 'PRELOAD_CONFIG:' });
+    // 🆕 遍历所有频道配置
+    const listResult = await env.YOYO_USER_DB.list({ prefix: 'channel:' });
     
     const configs = [];
     for (const key of listResult.keys) {
-      const config = await env.YOYO_USER_DB.get(key.name, { type: 'json' });
-      if (config && config.enabled) {
-        configs.push(config);
+      const channelData = await env.YOYO_USER_DB.get(key.name, { type: 'json' });
+      if (channelData?.preloadConfig?.enabled) {
+        configs.push({
+          channelId: channelData.id,
+          ...channelData.preloadConfig
+        });
       }
     }
     
