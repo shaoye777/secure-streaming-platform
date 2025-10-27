@@ -253,23 +253,233 @@ pm2 logs
 
 **文件**: `frontend/src/components/admin/PreloadConfigDialog.vue`
 
-### UI组件
-```vue
-<el-switch 
-  v-model="formData.workdaysOnly" 
-  active-text="仅工作日"
-  inactive-text="每天"
-/>
+### 4.1 UI组件设计（用户建议）
 
-<el-tooltip content="自动识别法定节假日和调休" />
+**核心需求**：
+1. 工作日开关切换时立即获取工作日状态
+2. 在配置旁边实时显示当前状态
+3. 显示数据获取成功/失败状态
+
+**UI布局**：
+```vue
+<el-form-item label="预加载策略">
+  <!-- 工作日开关 -->
+  <el-switch 
+    v-model="formData.workdaysOnly" 
+    active-text="仅工作日"
+    inactive-text="每天"
+    @change="handleWorkdayToggle"
+  />
+  
+  <!-- 🆕 状态指示器 -->
+  <el-tag 
+    v-if="formData.workdaysOnly && workdayStatus"
+    :type="workdayStatus.type"
+    size="small"
+    style="margin-left: 10px"
+  >
+    {{ workdayStatus.text }}
+  </el-tag>
+  
+  <!-- 提示信息 -->
+  <el-tooltip placement="top">
+    <template #content>
+      开启后，仅在工作日的设置时段内预加载<br>
+      自动识别法定节假日和调休
+    </template>
+    <el-icon><QuestionFilled /></el-icon>
+  </el-tooltip>
+</el-form-item>
+
+<!-- 🆕 详细状态信息（展开显示） -->
+<el-alert 
+  v-if="formData.workdaysOnly && workdayDetails"
+  :type="workdayDetails.alertType"
+  :closable="false"
+  show-icon
+>
+  <template #title>
+    {{ workdayDetails.title }}
+  </template>
+  <div v-if="workdayDetails.failedMonths.length > 0">
+    <p>待重试月份: {{ workdayDetails.failedMonths.join(', ') }}</p>
+    <p>将在每天凌晨1点自动重试</p>
+  </div>
+</el-alert>
+```
+
+### 4.2 状态获取逻辑
+
+```javascript
+const workdayStatus = ref(null);
+const workdayDetails = ref(null);
+
+// 🆕 开关切换时获取状态
+const handleWorkdayToggle = async (enabled) => {
+  if (enabled) {
+    // 立即获取工作日状态
+    await fetchWorkdayStatus();
+  } else {
+    // 关闭时清除状态
+    workdayStatus.value = null;
+    workdayDetails.value = null;
+  }
+};
+
+// 🆕 获取工作日状态API
+const fetchWorkdayStatus = async () => {
+  try {
+    const response = await axios.get('/api/preload/workday-status');
+    const data = response.data;
+    
+    // 设置状态标签
+    if (data.dataReady) {
+      workdayStatus.value = {
+        type: 'success',
+        text: '✅ 数据已加载'
+      };
+    } else if (data.failedMonths.length > 0) {
+      workdayStatus.value = {
+        type: 'warning',
+        text: `⚠️ ${data.failedMonths.length}个月份待重试`
+      };
+    } else {
+      workdayStatus.value = {
+        type: 'info',
+        text: '🔄 正在加载数据'
+      };
+    }
+    
+    // 设置详细信息
+    workdayDetails.value = {
+      alertType: data.failedMonths.length > 0 ? 'warning' : 'success',
+      title: data.message,
+      failedMonths: data.failedMonths
+    };
+    
+  } catch (error) {
+    workdayStatus.value = {
+      type: 'danger',
+      text: '❌ 获取状态失败'
+    };
+  }
+};
+```
+
+### 4.3 状态显示效果
+
+**场景1：数据正常**
+```
+[仅工作日 ●] [✅ 数据已加载]
+ℹ️ 当前月和下月工作日数据已准备就绪
+```
+
+**场景2：有失败需要重试**
+```
+[仅工作日 ●] [⚠️ 1个月份待重试]
+⚠️ 部分月份数据获取失败
+待重试月份: 2025-11
+将在每天凌晨1点自动重试
+```
+
+**场景3：完全失败**
+```
+[仅工作日 ●] [❌ 获取状态失败]
+⚠️ 无法连接到工作日服务，将降级为周末检测模式
+```
+
+### 4.4 新增Workers API端点
+
+**文件**: `cloudflare-worker/src/index.js`
+
+```javascript
+// 🆕 GET /api/preload/workday-status
+router.get('/api/preload/workday-status', async (req, env) => {
+  try {
+    // 从VPS获取WorkdayChecker状态
+    const response = await fetch(
+      `${env.VPS_API_URL}/api/preload/workday-status`,
+      {
+        headers: {
+          'X-API-Key': env.VPS_API_KEY
+        }
+      }
+    );
+    
+    const data = await response.json();
+    
+    return Response.json({
+      dataReady: data.dataReady,
+      failedMonths: data.failedMonths || [],
+      currentMonth: data.currentMonth,
+      nextMonth: data.nextMonth,
+      message: data.message
+    });
+    
+  } catch (error) {
+    return Response.json({
+      dataReady: false,
+      failedMonths: [],
+      message: '工作日服务暂时不可用'
+    }, { status: 503 });
+  }
+});
+```
+
+### 4.5 新增VPS API端点
+
+**文件**: `src/routes/preload.js` (新建)
+
+```javascript
+// 🆕 GET /api/preload/workday-status
+router.get('/workday-status', (req, res) => {
+  try {
+    const checker = req.app.get('workdayChecker');
+    
+    if (!checker) {
+      return res.json({
+        dataReady: false,
+        failedMonths: [],
+        message: 'WorkdayChecker未初始化'
+      });
+    }
+    
+    // 获取状态
+    const failedMonths = Array.from(checker.failedMonths || []);
+    const now = new Date();
+    const currentMonth = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}`;
+    const nextMonth = checker.getNextMonthKey();
+    
+    const dataReady = failedMonths.length === 0;
+    
+    res.json({
+      dataReady,
+      failedMonths,
+      currentMonth,
+      nextMonth,
+      message: dataReady 
+        ? '当前月和下月工作日数据已准备就绪' 
+        : `${failedMonths.length}个月份数据获取失败，将自动重试`
+    });
+    
+  } catch (error) {
+    res.status(500).json({
+      error: '获取工作日状态失败',
+      message: error.message
+    });
+  }
+});
 ```
 
 ### 验证
 ```
-打开管理后台 → 预加载配置
-✅ 显示"仅工作日"开关
-✅ 提示信息清晰
-✅ 保存配置成功
+1. 打开管理后台 → 预加载配置
+2. 开启"仅工作日"开关
+3. 立即看到状态标签显示
+   ✅ 数据正常: "✅ 数据已加载"
+   ⚠️ 有重试: "⚠️ 1个月份待重试"
+4. 查看详细信息（Alert组件）
+5. 关闭开关，状态消失
 ```
 
 ---
@@ -321,6 +531,25 @@ pm2 logs
 期望: 识别为非工作日，跳过 ✅
 ```
 
+#### 场景6：前端状态显示 🆕
+```
+操作: 打开预加载配置对话框
+步骤:
+  1. 开启"仅工作日"开关
+  2. 立即调用 /api/preload/workday-status
+  3. 显示状态标签
+
+期望效果:
+  ✅ 数据正常时: [✅ 数据已加载]
+  ⚠️ 有失败时: [⚠️ 1个月份待重试] + Alert详情
+  ❌ 服务异常: [❌ 获取状态失败]
+  
+交互验证:
+  ✅ 开关切换立即显示状态
+  ✅ 关闭开关状态消失
+  ✅ 重新打开重新获取
+```
+
 ### 性能验证
 ```
 启动时间: +200ms（预取数据）
@@ -334,23 +563,36 @@ API调用: 1次/月/频道
 ## 📝 实施清单
 
 ### 代码文件
-- [ ] `src/services/WorkdayChecker.js` - 新建
-- [ ] `src/services/PreloadScheduler.js` - 修改
+- [ ] `src/services/WorkdayChecker.js` - 新建（含failedMonths机制）
+- [ ] `src/services/PreloadScheduler.js` - 修改（集成WorkdayChecker）
+- [ ] `src/routes/preload.js` - 🆕 新建（工作日状态API）
 - [ ] `cloudflare-worker/src/index.js` - 修改
+  - [ ] PUT /api/preload/config - 添加workdaysOnly字段
+  - [ ] GET /api/preload/config - 返回workdaysOnly字段
+  - [ ] 🆕 GET /api/preload/workday-status - 新增API
 - [ ] `frontend/.../PreloadConfigDialog.vue` - 修改
+  - [ ] 添加工作日开关
+  - [ ] 🆕 添加状态指示器（el-tag）
+  - [ ] 🆕 添加详细信息（el-alert）
+  - [ ] 🆕 添加状态获取逻辑
+
+### API端点
+- [ ] VPS: `GET /api/preload/workday-status` - 返回failedMonths状态
+- [ ] Workers: `GET /api/preload/workday-status` - 代理到VPS
 
 ### 依赖
 - [ ] axios（已有）
 - [ ] node-cron（已有）
 
 ### 配置
-- [ ] KV: 添加workdaysOnly字段
-- [ ] 默认值: false（保持兼容）
+- [ ] KV: 添加workdaysOnly字段（默认false）
+- [ ] VPS app.js: 注册WorkdayChecker到app
 
 ### 测试
 - [ ] 单元测试: WorkdayChecker
-- [ ] 集成测试: 4个场景
+- [ ] 集成测试: 6个场景（新增前端状态显示）
 - [ ] 性能测试: 启动时间、内存
+- [ ] UI测试: 状态标签显示和交互
 
 ---
 
