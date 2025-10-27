@@ -25,6 +25,9 @@ class SimpleStreamManager {
     // 频道心跳时间 Map<channelId, lastHeartbeatTime>
     this.channelHeartbeats = new Map();
 
+    // 🆕 预加载频道集合 Set<channelId>
+    this.preloadChannels = new Set();
+
     // FFmpeg配置
     this.ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg';
     this.hlsOutputDir = process.env.HLS_OUTPUT_DIR || '/var/www/hls';
@@ -180,6 +183,11 @@ class SimpleStreamManager {
     const now = Date.now();
     
     for (const [channelId, lastHeartbeat] of this.channelHeartbeats) {
+      // 🆕 跳过预加载频道
+      if (this.preloadChannels.has(channelId)) {
+        continue;
+      }
+      
       if (now - lastHeartbeat > this.HEARTBEAT_TIMEOUT) {
         logger.info('Channel idle timeout, cleaning up', { 
           channelId, 
@@ -539,6 +547,122 @@ class SimpleStreamManager {
   }
 
 
+  // ===== 🆕 预加载功能 =====
+
+  /**
+   * 启动预加载
+   * @param {string} channelId - 频道ID
+   * @param {string} rtmpUrl - RTMP源地址
+   */
+  async startPreload(channelId, rtmpUrl) {
+    try {
+      logger.info('Starting preload', { channelId });
+      
+      // 添加到预加载集合
+      this.preloadChannels.add(channelId);
+      
+      // 检查是否已经在转码
+      if (this.activeStreams.has(channelId)) {
+        const streamInfo = this.activeStreams.get(channelId);
+        
+        // 如果RTMP URL变了，需要重启
+        if (streamInfo.rtmpUrl !== rtmpUrl) {
+          logger.info('RTMP URL changed, restarting preload', { 
+            channelId, 
+            oldUrl: streamInfo.rtmpUrl, 
+            newUrl: rtmpUrl 
+          });
+          await this.stopChannel(channelId);
+        } else {
+          logger.info('Channel already transcoding, skip', { channelId });
+          return {
+            status: 'success',
+            message: 'Channel already transcoding',
+            data: { channelId, isPreload: true }
+          };
+        }
+      }
+      
+      // 启动转码（复用startWatching的逻辑）
+      const result = await this.startWatching(channelId, rtmpUrl);
+      
+      // 更新心跳时间（预加载不需要心跳，但设置一个很大的值防止被清理）
+      this.channelHeartbeats.set(channelId, Date.now());
+      
+      logger.info('Preload started successfully', { channelId });
+      
+      return {
+        status: 'success',
+        message: 'Preload started',
+        data: { channelId, isPreload: true }
+      };
+    } catch (error) {
+      logger.error('Failed to start preload', { 
+        channelId, 
+        error: error.message 
+      });
+      
+      // 失败时从预加载集合中移除
+      this.preloadChannels.delete(channelId);
+      
+      throw error;
+    }
+  }
+
+  /**
+   * 停止预加载
+   * @param {string} channelId - 频道ID
+   */
+  async stopPreload(channelId) {
+    try {
+      logger.info('Stopping preload', { channelId });
+      
+      // 从预加载集合中移除
+      this.preloadChannels.delete(channelId);
+      
+      // 停止转码
+      await this.stopChannel(channelId);
+      
+      // 移除心跳记录
+      this.channelHeartbeats.delete(channelId);
+      
+      logger.info('Preload stopped successfully', { channelId });
+      
+      return {
+        status: 'success',
+        message: 'Preload stopped',
+        data: { channelId }
+      };
+    } catch (error) {
+      logger.error('Failed to stop preload', { 
+        channelId, 
+        error: error.message 
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * 获取预加载状态
+   */
+  getPreloadStatus() {
+    const preloadChannels = Array.from(this.preloadChannels).map(channelId => {
+      const streamInfo = this.activeStreams.get(channelId);
+      return {
+        channelId,
+        isActive: streamInfo ? true : false,
+        rtmpUrl: streamInfo ? streamInfo.rtmpUrl : null,
+        startedAt: streamInfo ? streamInfo.startedAt : null
+      };
+    });
+    
+    return {
+      totalPreloadChannels: this.preloadChannels.size,
+      activePreloadChannels: preloadChannels.filter(c => c.isActive).length,
+      channels: preloadChannels
+    };
+  }
+
   /**
    * 销毁管理器
    */
@@ -554,6 +678,7 @@ class SimpleStreamManager {
     // 清理所有数据
     this.activeStreams.clear();
     this.channelHeartbeats.clear();
+    this.preloadChannels.clear();
     
     logger.info('SimpleStreamManager destroyed');
   }
