@@ -1,6 +1,7 @@
 const express = require('express');
 const SimpleStreamManager = require('../services/SimpleStreamManager');
 const PreloadScheduler = require('../services/PreloadScheduler');
+const PreloadHealthCheck = require('../services/PreloadHealthCheck');
 const logger = require('../utils/logger');
 const authMiddleware = require('../middleware/auth');
 
@@ -15,11 +16,18 @@ const streamManager = new SimpleStreamManager();
 // 🆕 创建预加载调度器实例
 const preloadScheduler = new PreloadScheduler(streamManager);
 
+// 🆕 创建预加载健康检查实例
+const preloadHealthCheck = new PreloadHealthCheck(streamManager, preloadScheduler);
+
 // 🆕 延迟5秒启动预加载调度器（等待服务器完全启动）
 setTimeout(() => {
   preloadScheduler.start()
     .then(() => {
       logger.info('✅ PreloadScheduler started successfully');
+      
+      // 启动健康检查
+      preloadHealthCheck.start();
+      logger.info('✅ PreloadHealthCheck started successfully');
     })
     .catch((error) => {
       logger.error('Failed to start PreloadScheduler', { error: error.message });
