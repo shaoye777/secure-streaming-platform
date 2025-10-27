@@ -142,6 +142,42 @@ else
     echo "✅ V2Ray/Xray已安装"
 fi
 
+# 检查Node.js依赖
+echo "🔍 检查Node.js依赖..."
+cd /opt/yoyo-transcoder || { echo "❌ 转码目录不存在"; exit 1; }
+
+# 检查package.json是否存在
+if [ ! -f "package.json" ]; then
+    echo "❌ package.json不存在"
+    exit 1
+fi
+
+# 检查node-cron依赖（预加载功能需要）
+if ! npm list node-cron >/dev/null 2>&1; then
+    echo "⚠️ node-cron未安装（预加载功能需要），正在安装..."
+    npm install node-cron
+    
+    # 验证安装
+    if npm list node-cron >/dev/null 2>&1; then
+        echo "✅ node-cron安装成功"
+    else
+        echo "❌ node-cron安装失败"
+        exit 1
+    fi
+else
+    echo "✅ node-cron已安装"
+fi
+
+# 检查其他可能缺失的依赖
+echo "🔍 检查并安装其他缺失的依赖..."
+if ! npm list axios >/dev/null 2>&1 || ! npm list express >/dev/null 2>&1; then
+    echo "⚠️ 检测到缺失依赖，运行npm install..."
+    npm install
+    echo "✅ 依赖安装完成"
+else
+    echo "✅ 核心依赖完整"
+fi
+
 # 5. 验证proxy.js包含新路由
 echo "🔍 验证代理路由..."
 if grep -q "router.post('/connect'" "$TARGET_DIR/routes/proxy.js"; then
