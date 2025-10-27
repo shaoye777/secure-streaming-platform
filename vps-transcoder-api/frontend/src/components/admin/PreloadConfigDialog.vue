@@ -161,13 +161,16 @@ const preloadInfo = computed(() => {
   const start = form.value.startTime;
   const end = form.value.endTime;
   
+  // 🆕 根据工作日设置选择时段描述
+  const timePrefix = form.value.workdaysOnly ? '工作日' : '每天';
+  
   // 判断是否跨天
   const isCrossDay = end < start;
   
   if (isCrossDay) {
-    return `预加载时段：每天 ${start} - 次日 ${end} (跨天)`;
+    return `预加载时段：${timePrefix} ${start} - 次日 ${end} (跨天)`;
   } else {
-    return `预加载时段：每天 ${start} - ${end}`;
+    return `预加载时段：${timePrefix} ${start} - ${end}`;
   }
 });
 
