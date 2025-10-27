@@ -42,6 +42,17 @@
             </el-tooltip>
           </template>
         </el-table-column>
+        <el-table-column label="预加载状态" width="110" align="center">
+          <template #default="scope">
+            <el-tag 
+              :type="getPreloadStatusType(scope.row)"
+              size="small"
+              effect="plain"
+            >
+              {{ getPreloadStatusText(scope.row) }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="排序" width="100" align="center">
           <template #default="scope">
             <span class="sort-order">{{ scope.row.sortOrder || 0 }}</span>
@@ -398,6 +409,22 @@ const formatDate = (timestamp) => {
   return dayjs(timestamp).format('YYYY-MM-DD HH:mm:ss')
 }
 
+// 获取预加载状态文字
+const getPreloadStatusText = (stream) => {
+  if (!stream.preloadConfig) {
+    return '未配置'
+  }
+  return stream.preloadConfig.enabled ? '已启用' : '已禁用'
+}
+
+// 获取预加载状态标签类型
+const getPreloadStatusType = (stream) => {
+  if (!stream.preloadConfig) {
+    return 'info'
+  }
+  return stream.preloadConfig.enabled ? 'success' : 'info'
+}
+
 // 处理添加对话框关闭
 const handleAddDialogClose = () => {
   showAddDialog.value = false
@@ -451,8 +478,10 @@ const openPreloadConfig = (stream) => {
 }
 
 // 🆕 预加载配置保存成功回调
-const handlePreloadSaved = () => {
+const handlePreloadSaved = async () => {
   ElMessage.success('预加载配置已更新')
+  // 刷新频道列表以更新预加载状态显示
+  await streamsStore.fetchAdminStreams()
 }
 
 onMounted(() => {
