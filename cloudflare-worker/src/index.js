@@ -453,28 +453,24 @@ async function handleRequest(request, env, ctx) {
         
         const responseData = await vpsResponse.json();
         
-        // 🎯 根据隧道配置调整HLS URL
+        // 🎯 根据隧道配置调整HLS URL（前端通过URL推断模式）
         if (responseData.status === 'success' && responseData.data && responseData.data.hlsUrl) {
           const vpsHlsUrl = responseData.data.hlsUrl;
           
           if (tunnelEnabled) {
-            // 隧道模式：使用Workers代理
+            // 隧道模式：转换为Workers代理URL
+            // 前端会根据 /tunnel-proxy/ 路径自动识别为"Workers代理模式"
             // 转换: https://yoyo-vps.5202021.xyz/hls/channelId/playlist.m3u8
             // 到:    https://yoyoapi.5202021.xyz/tunnel-proxy/hls/channelId/playlist.m3u8
             const match = vpsHlsUrl.match(/\/hls\/(.+)/);
             if (match) {
               const hlsPath = match[1]; // channelId/playlist.m3u8
               responseData.data.hlsUrl = `https://yoyoapi.5202021.xyz/tunnel-proxy/hls/${hlsPath}`;
-              responseData.data.routingMode = 'tunnel+direct';
-              responseData.data.frontendPath = 'tunnel';
-              responseData.data.backendPath = 'direct';
               console.log('✅ Tunnel enabled, using Workers proxy:', responseData.data.hlsUrl);
             }
           } else {
-            // 直连模式
-            responseData.data.routingMode = 'direct+direct';
-            responseData.data.frontendPath = 'direct';
-            responseData.data.backendPath = 'direct';
+            // 直连模式：保持VPS URL
+            // 前端会根据 yoyo-vps.5202021.xyz 域名自动识别为"VPS直连模式"
             console.log('✅ Direct mode, using VPS direct URL:', responseData.data.hlsUrl);
           }
         }
