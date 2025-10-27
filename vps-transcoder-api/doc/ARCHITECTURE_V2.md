@@ -1,8 +1,8 @@
-# YOYO流媒体平台架构文档 V2.2
+# YOYO流媒体平台架构文档 V2.3
 
 > **精简架构文档** - 专注于核心架构设计和关键技术实现  
 > **更新时间**: 2025-10-27  
-> **文档版本**: V2.2 - 新增工作日预加载功能
+> **文档版本**: V2.3 - KV存储结构优化（频道配置与预加载配置合并）
 
 ---
 
@@ -16,6 +16,7 @@
 - [部署架构](#-部署架构)
 - [性能优化](#-性能优化)
 - [安全与监控](#-安全与监控)
+- [版本历史](#-版本历史)
 
 ---
 
@@ -434,21 +435,30 @@ class PreloadHealthCheck {
 }
 ```
 
-**KV存储结构**:
+**KV存储结构** (已整合到频道配置中):
 ```json
 {
-  "PRELOAD_CONFIG:stream_ensxma2g": {
-    "channelId": "stream_ensxma2g",
-    "channelName": "二楼教室1",
-    "enabled": true,
-    "startTime": "07:00",
-    "endTime": "17:30",
-    "workdaysOnly": true,
-    "updatedAt": "2025-10-27T09:00:00Z",
-    "updatedBy": "admin"
+  "channel:stream_ensxma2g": {
+    "id": "stream_ensxma2g",
+    "name": "二楼教室1",
+    "rtmpUrl": "rtmp://push228.dodool.com.cn/55/19",
+    "sortOrder": 1,
+    "status": "active",
+    "preloadConfig": {
+      "enabled": true,
+      "startTime": "07:00",
+      "endTime": "17:30",
+      "workdaysOnly": true,
+      "updatedAt": "2025-10-27T09:00:00Z",
+      "updatedBy": "admin"
+    },
+    "createdAt": "2025-10-01T00:00:00Z",
+    "updatedAt": "2025-10-27T09:00:00Z"
   }
 }
 ```
+
+**注**: 预加载配置作为 `preloadConfig` 字段嵌入到频道配置中，不再使用独立的 `PRELOAD_CONFIG:*` 键。
 
 #### 4.4 WorkdayChecker（工作日检测器）⭐ 新增
 
@@ -563,6 +573,7 @@ sequenceDiagram
 ### 频道配置管理
 
 **存储方式**: Cloudflare KV  
+**Key格式**: `channel:${channelId}`  
 **数据结构**:
 ```json
 {
@@ -571,35 +582,62 @@ sequenceDiagram
     "name": "频道名称",
     "rtmpUrl": "rtmp://...",
     "sortOrder": 1,
-    "status": "active"
+    "status": "active",
+    "preloadConfig": {
+      "enabled": false,
+      "startTime": "07:00",
+      "endTime": "17:30",
+      "workdaysOnly": false,
+      "updatedAt": "2025-10-27T09:00:00Z",
+      "updatedBy": "admin"
+    },
+    "createdAt": "2025-10-01T00:00:00Z",
+    "updatedAt": "2025-10-27T09:00:00Z"
   }
 }
 ```
 
+**配置字段说明**:
+- `id`: 频道唯一标识符
+- `name`: 频道显示名称
+- `rtmpUrl`: RTMP推流地址
+- `sortOrder`: 显示排序（数字越小越靠前）
+- `status`: 频道状态（active/inactive）
+- `preloadConfig`: 预加载配置（嵌入式，见下节）
+- `createdAt`: 创建时间
+- `updatedAt`: 最后更新时间
+
 **配置流程**:
-1. 管理后台编辑配置
-2. 保存到Workers KV
+1. 管理后台编辑频道配置（基本信息或预加载配置）
+2. 保存到Workers KV（单一键存储）
 3. 配置立即生效
 4. 前端下次加载获取新配置
 
-### 预加载配置管理
+### 预加载配置管理 ⭐ 已整合到频道配置
 
-**存储方式**: Cloudflare KV  
-**Key格式**: `PRELOAD_CONFIG:${channelId}`  
+**存储方式**: 嵌入到频道配置中（`channel:${channelId}`）  
+**字段名称**: `preloadConfig`  
 **数据结构**:
 ```json
 {
-  "PRELOAD_CONFIG:stream_xxx": {
-    "channelId": "stream_xxx",
-    "channelName": "频道名称",
+  "preloadConfig": {
     "enabled": true,
     "startTime": "07:00",
     "endTime": "17:30",
+    "workdaysOnly": true,
     "updatedAt": "2025-10-27T09:00:00Z",
     "updatedBy": "admin"
   }
 }
 ```
+
+**字段说明**:
+- `enabled`: 是否启用预加载（布尔值）
+- `startTime`: 预加载开始时间（HH:MM格式）
+- `endTime`: 预加载结束时间（HH:MM格式，可跨天）
+- `workdaysOnly`: 是否仅工作日预加载（布尔值）
+- `updatedAt`: 配置更新时间
+- `updatedBy`: 配置更新者
 
 **配置流程**:
 ```mermaid
@@ -612,16 +650,25 @@ sequenceDiagram
     
     A->>F: 点击预加载配置
     F->>W: PUT /api/preload/config/:id
-    W->>K: 保存配置到KV
+    W->>K: 读取频道配置 channel:id
+    K->>W: 返回现有配置
+    W->>W: 更新 preloadConfig 字段
+    W->>K: 保存更新后的频道配置
     W->>F: 返回成功
     F->>W: POST /api/preload/reload
     W->>V: 通知VPS重载配置
-    V->>W: GET /api/preload/config/:id
-    W->>K: 从KV读取配置
-    K->>W: 返回配置
-    W->>V: 返回配置
+    V->>W: GET /api/preload/configs
+    W->>K: 遍历所有频道配置
+    K->>W: 返回所有配置
+    W->>V: 返回启用的预加载配置列表
     V->>V: 重新创建定时任务
 ```
+
+**优化说明**:
+- ✅ **统一存储**: 频道配置和预加载配置存储在同一个KV键中
+- ✅ **减少KV操作**: 读取频道列表时自动包含预加载配置，无需额外查询
+- ✅ **数据一致性**: 频道和预加载配置同步更新，避免数据不一致
+- ✅ **简化架构**: 移除独立的 `PRELOAD_CONFIG:*` 键，降低系统复杂度
 
 ---
 
@@ -884,6 +931,50 @@ A: 使用一键部署脚本（见"部署架构"章节）
 
 ---
 
+## 📝 版本历史
+
+### V2.3 (2025-10-27)
+**KV存储结构优化 - 频道配置与预加载配置合并**
+
+**核心变更**:
+- ✅ 将独立的 `PRELOAD_CONFIG:${channelId}` 键合并到 `channel:${channelId}` 配置中
+- ✅ 预加载配置作为 `preloadConfig` 字段嵌入到频道配置
+- ✅ 统一存储结构，减少KV读写操作
+- ✅ 提升数据一致性，简化系统架构
+
+**API变更**:
+- 🔄 `PUT /api/preload/config/:channelId` - 现在更新频道配置中的 `preloadConfig` 字段
+- 🔄 `GET /api/preload/config/:channelId` - 从频道配置中读取 `preloadConfig` 字段
+- 🔄 `GET /api/preload/configs` - 遍历所有频道配置，返回启用的预加载配置列表
+
+**优势**:
+- 📉 减少KV操作：读取频道列表时自动包含预加载配置
+- 🔄 数据一致性：频道和预加载配置同步更新
+- 🎯 架构简化：移除独立的预加载配置键，降低系统复杂度
+
+### V2.2 (2025-10-27)
+**新增工作日预加载功能**
+- ✅ WorkdayChecker工作日检测器
+- ✅ 支持法定节假日和调休识别
+- ✅ 智能缓存和失败重试机制
+- ✅ 容错降级模式
+
+### V2.1 (2025-10-26)
+**智能预加载系统上线**
+- ✅ PreloadScheduler预加载调度器
+- ✅ 定时任务管理
+- ✅ 进程健康检查
+- ✅ VPS通知和配置重载
+
+### V2.0 (2025-10-01)
+**双维度路由优化完成**
+- ✅ 前后端路径独立优化
+- ✅ Workers代理方案
+- ✅ 路由决策引擎
+- ✅ 生产环境部署
+
+---
+
 **文档维护者**: AI Assistant  
-**最后更新**: 2025-10-27 12:42 (UTC+8)  
-**文档状态**: ✅ V2.1 - 包含智能预加载系统
+**最后更新**: 2025-10-27 17:55 (UTC+8)  
+**文档状态**: ✅ V2.3 - KV存储结构优化（频道配置与预加载配置合并）
