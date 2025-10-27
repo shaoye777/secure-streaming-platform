@@ -109,7 +109,7 @@ class WorkdayChecker {
 ```
 1. 检查缓存 → 命中返回
 2. 调用API → type=0或3为工作日
-3. 失败降级 → 周一到周五=工作日
+3. 失败降级 → 基础模式（周一至周五=工作日，无法识别节假日）
 4. 写入缓存
 ```
 
@@ -385,7 +385,9 @@ const fetchWorkdayStatus = async () => {
 **场景3：完全失败**
 ```
 [仅工作日 ●] [❌ 获取状态失败]
-⚠️ 无法连接到工作日服务，将降级为周末检测模式
+⚠️ 无法连接到工作日服务
+将降级为基础模式：周一至周五视为工作日
+注意：此模式无法识别法定节假日和调休
 ```
 
 ### 4.4 新增Workers API端点
@@ -610,9 +612,10 @@ async isWorkday(date) {
     return parseWorkday(response);
     
   } catch (error) {
-    console.warn('⚠️ 工作日API失败，降级为每日预加载模式', error);
+    console.warn('⚠️ 工作日API失败，降级为基础模式', error);
     
-    // 降级：周一到周五=工作日
+    // 降级为基础模式：周一至周五视为工作日
+    // 注意：此模式无法识别法定节假日和调休
     const dayOfWeek = date.getDay();
     return dayOfWeek >= 1 && dayOfWeek <= 5;
   }
