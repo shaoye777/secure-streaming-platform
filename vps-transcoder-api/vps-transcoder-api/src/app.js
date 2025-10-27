@@ -122,11 +122,27 @@ try {
 
 // 使用新的简化流管理API（向后兼容）
 try {
-  const { router: simpleStreamRoutes } = require('./routes/simple-stream');
+  const { router: simpleStreamRoutes, preloadScheduler } = require('./routes/simple-stream');
   app.use('/api/simple-stream', simpleStreamRoutes);
+  
+  // 🆕 将workdayChecker注册到app，供其他路由访问
+  if (preloadScheduler && preloadScheduler.workdayChecker) {
+    app.set('workdayChecker', preloadScheduler.workdayChecker);
+    logger.info('✅ WorkdayChecker registered to app');
+  }
+  
   logger.info('✅ 简化流管理API路由已加载');
 } catch (error) {
   logger.error('简化流管理API路由加载失败:', error.message);
+}
+
+// 🆕 预加载管理API路由
+try {
+  const preloadRoutes = require('./routes/preload');
+  app.use('/api/preload', preloadRoutes);
+  logger.info('✅ 预加载管理API路由已加载');
+} catch (error) {
+  logger.error('预加载管理API路由加载失败:', error.message);
 }
 
 // 代理管理API路由

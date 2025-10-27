@@ -147,6 +147,33 @@ async function getPreloadStatus(env) {
 }
 
 /**
+ * 🆕 获取工作日状态（从VPS）
+ */
+async function getWorkdayStatus(env) {
+  try {
+    const vpsUrl = `${env.VPS_API_URL}/api/preload/workday-status`;
+    const response = await fetch(vpsUrl, {
+      headers: {
+        'X-API-Key': env.VPS_API_KEY
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`VPS API responded with status ${response.status}`);
+    }
+    
+    const result = await response.json();
+    return result;
+  } catch (error) {
+    console.error('Failed to get workday status from VPS:', error);
+    return {
+      status: 'error',
+      message: 'Failed to connect to VPS: ' + error.message
+    };
+  }
+}
+
+/**
  * 通知VPS重新加载调度器
  */
 async function notifyVpsReload(env) {
@@ -233,6 +260,14 @@ export async function handlePreloadRequest(request, env) {
   // GET /api/preload/status - 获取预加载状态
   if (method === 'GET' && pathname === '/api/preload/status') {
     const result = await getPreloadStatus(env);
+    return new Response(JSON.stringify(result), {
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  
+  // 🆕 GET /api/preload/workday-status - 获取工作日状态
+  if (method === 'GET' && pathname === '/api/preload/workday-status') {
+    const result = await getWorkdayStatus(env);
     return new Response(JSON.stringify(result), {
       headers: { 'Content-Type': 'application/json' }
     });

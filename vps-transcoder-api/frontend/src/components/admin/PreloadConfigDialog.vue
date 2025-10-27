@@ -38,6 +38,43 @@
         />
       </el-form-item>
       
+      <!-- 🆕 工作日限制开关 -->
+      <el-form-item label="仅工作日" prop="workdaysOnly">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <el-switch
+            v-model="form.workdaysOnly"
+            active-text="启用"
+            inactive-text="禁用"
+            :disabled="!form.enabled"
+            @change="handleWorkdayToggle"
+          />
+          <el-tag
+            v-if="form.workdaysOnly && workdayStatus.text"
+            :type="workdayStatus.type"
+            size="small"
+          >
+            {{ workdayStatus.text }}
+          </el-tag>
+        </div>
+        <div style="margin-top: 5px; font-size: 12px; color: #909399;">
+          启用后仅在工作日进行预加载（自动识别法定节假日和调休）
+        </div>
+      </el-form-item>
+      
+      <!-- 🆕 工作日状态详情 -->
+      <el-alert
+        v-if="form.workdaysOnly && workdayDetails.title"
+        :title="workdayDetails.title"
+        :type="workdayDetails.alertType"
+        :closable="false"
+        style="margin-bottom: 15px"
+      >
+        <template v-if="workdayDetails.failedMonths && workdayDetails.failedMonths.length > 0">
+          <p>待重试月份: {{ workdayDetails.failedMonths.join(', ') }}</p>
+          <p style="margin-top: 5px;">将在每天凌晨1点自动重试</p>
+        </template>
+      </el-alert>
+      
       <el-alert
         v-if="form.enabled"
         :title="preloadInfo"
@@ -91,7 +128,21 @@ const saving = ref(false);
 const form = ref({
   enabled: false,
   startTime: '07:00',
-  endTime: '17:30'
+  endTime: '17:30',
+  workdaysOnly: false  // 🆕 工作日限制
+});
+
+// 🆕 工作日状态
+const workdayStatus = ref({
+  type: 'info',
+  text: ''
+});
+
+// 🆕 工作日详细信息
+const workdayDetails = ref({
+  alertType: 'success',
+  title: '',
+  failedMonths: []
 });
 
 const rules = {
@@ -137,12 +188,82 @@ async function loadConfig() {
       form.value = {
         enabled: config.enabled || false,
         startTime: config.startTime || '07:00',
-        endTime: config.endTime || '17:30'
+        endTime: config.endTime || '17:30',
+        workdaysOnly: config.workdaysOnly || false  // 🆕 加载工作日设置
       };
+      
+      // 🆕 如果工作日开关已启用，获取状态
+      if (form.value.workdaysOnly) {
+        await fetchWorkdayStatus();
+      }
     }
   } catch (error) {
     console.error('加载预加载配置失败:', error);
     ElMessage.error('加载配置失败');
+  }
+}
+
+// 🆕 工作日开关切换处理
+async function handleWorkdayToggle(value) {
+  if (value) {
+    // 开启时获取工作日状态
+    workdayStatus.value = {
+      type: 'info',
+      text: '🔄 正在加载数据...'
+    };
+    await fetchWorkdayStatus();
+  } else {
+    // 关闭时清除状态
+    workdayStatus.value = { type: 'info', text: '' };
+    workdayDetails.value = { alertType: 'success', title: '', failedMonths: [] };
+  }
+}
+
+// 🆕 获取工作日状态
+async function fetchWorkdayStatus() {
+  try {
+    const response = await axios.get('/api/preload/workday-status');
+    
+    if (response.data.status === 'success') {
+      const { dataReady, failedMonths, message } = response.data.data;
+      
+      if (dataReady && (!failedMonths || failedMonths.length === 0)) {
+        // 数据完全就绪
+        workdayStatus.value = {
+          type: 'success',
+          text: '✅ 数据已加载'
+        };
+        workdayDetails.value = {
+          alertType: 'success',
+          title: '当前月和下月工作日数据已准备就绪',
+          failedMonths: []
+        };
+      } else if (failedMonths && failedMonths.length > 0) {
+        // 部分月份失败
+        workdayStatus.value = {
+          type: 'warning',
+          text: `⚠️ ${failedMonths.length}个月份待重试`
+        };
+        workdayDetails.value = {
+          alertType: 'warning',
+          title: '部分月份数据获取失败',
+          failedMonths: failedMonths
+        };
+      }
+    } else {
+      throw new Error(response.data.message);
+    }
+  } catch (error) {
+    console.error('获取工作日状态失败:', error);
+    workdayStatus.value = {
+      type: 'danger',
+      text: '❌ 获取状态失败'
+    };
+    workdayDetails.value = {
+      alertType: 'warning',
+      title: '无法连接到工作日服务',
+      failedMonths: []
+    };
   }
 }
 
@@ -156,7 +277,8 @@ async function handleSave() {
     const response = await axios.put(`/api/preload/config/${props.channelId}`, {
       enabled: form.value.enabled,
       startTime: form.value.startTime,
-      endTime: form.value.endTime
+      endTime: form.value.endTime,
+      workdaysOnly: form.value.workdaysOnly  // 🆕 保存工作日设置
     });
     
     if (response.data.status === 'success') {
