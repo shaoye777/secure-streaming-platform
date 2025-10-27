@@ -90,7 +90,7 @@
               :icon="Timer"
               @click="openPreloadConfig(scope.row)"
             >
-              预加载
+              配置
             </el-button>
             <el-button
               type="danger"
