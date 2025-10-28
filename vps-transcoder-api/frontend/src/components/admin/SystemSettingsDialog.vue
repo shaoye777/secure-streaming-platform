@@ -59,7 +59,7 @@
 <script setup>
 import { ref, reactive, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import axios from 'axios'
+import { axios } from '@/utils/axios'
 
 const props = defineProps({
   modelValue: {
