@@ -341,20 +341,10 @@ async function handleSave() {
     if (allSuccess) {
       console.log('✅ 所有配置保存成功');
       
-      // 🔧 新增：保存成功后验证配置是否真的生效
-      await new Promise(resolve => setTimeout(resolve, 1000)); // 等待1秒
-      const verifyResponse = await axios.get(`/api/record/config/${props.channelId}?t=${Date.now()}`);
-      console.log('🔍 保存后验证:', verifyResponse.data.data);
-      
-      if (verifyResponse.data.data.enabled !== form.value.recordConfig.enabled) {
-        console.error('⚠️ 警告：保存的值与验证结果不一致！', {
-          保存的值: form.value.recordConfig.enabled,
-          验证结果: verifyResponse.data.data.enabled
-        });
-        ElMessage.warning('配置已保存，但验证发现状态不一致，请刷新页面确认');
-      } else {
-        ElMessage.success('频道配置已保存');
-      }
+      // 🔧 保存成功，直接显示成功提示
+      // 注意：由于Cloudflare KV是最终一致性存储，配置可能需要几秒钟才能全球生效
+      // 但API返回成功就表示数据已保存，列表会通过刷新自动获取最新状态
+      ElMessage.success('频道配置已保存');
       
       emit('saved');
       handleClose();
