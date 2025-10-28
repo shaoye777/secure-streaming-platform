@@ -231,8 +231,8 @@
       </template>
     </el-dialog>
 
-    <!-- 🆕 预加载配置对话框 -->
-    <PreloadConfigDialog
+    <!-- 🆕 频道配置对话框（预加载 + 录制） -->
+    <ChannelConfigDialog
       v-model="preloadDialogVisible"
       :channel-id="currentChannel.id"
       :channel-name="currentChannel.name"
@@ -246,7 +246,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh, Edit, Delete, ArrowUp, ArrowDown, Timer } from '@element-plus/icons-vue'
 import { useStreamsStore } from '../stores/streams'
-import PreloadConfigDialog from './admin/PreloadConfigDialog.vue'
+import ChannelConfigDialog from './admin/ChannelConfigDialog.vue'
 import dayjs from 'dayjs'
 
 const streamsStore = useStreamsStore()
