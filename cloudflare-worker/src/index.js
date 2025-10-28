@@ -14,6 +14,7 @@ import {
 
 import { ProxyHandler } from './handlers/proxyHandler.js';
 import { handlePreloadRequest } from './handlers/preloadHandler.js';
+import { handleRecordAPI } from './handlers/recordHandler.js';
 
 // 频道配置 - 与VPS上的配置保持一致
 const CHANNELS = {
@@ -224,6 +225,20 @@ async function handleRequest(request, env, ctx) {
     // 🆕 预加载配置API路由
     if (path.startsWith('/api/preload/')) {
       const response = await handlePreloadRequest(request, env);
+      // 添加CORS头
+      const newHeaders = new Headers(response.headers);
+      Object.entries(corsHeaders).forEach(([key, value]) => {
+        newHeaders.set(key, value);
+      });
+      return new Response(response.body, {
+        status: response.status,
+        headers: newHeaders
+      });
+    }
+
+    // 🆕 录制配置API路由
+    if (path.startsWith('/api/record/')) {
+      const response = await handleRecordAPI(request, env);
       // 添加CORS头
       const newHeaders = new Headers(response.headers);
       Object.entries(corsHeaders).forEach(([key, value]) => {
