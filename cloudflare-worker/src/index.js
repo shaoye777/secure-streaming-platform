@@ -808,6 +808,13 @@ async function handleRequest(request, env, ctx) {
             preloadConfig = null;
           }
           
+          // 🔧 安全获取recordConfig（过滤错误值）
+          let recordConfig = channelData?.recordConfig;
+          // 过滤无效值：undefined、字符串"undefined"、空字符串
+          if (!recordConfig || recordConfig === 'undefined' || recordConfig === '') {
+            recordConfig = null;
+          }
+          
           // 使用KV数据或默认配置
           streams.push({
             id,
@@ -815,7 +822,8 @@ async function handleRequest(request, env, ctx) {
             rtmpUrl: channelData?.rtmpUrl || defaultRtmpUrls[id] || `rtmp://push228.dodool.com.cn/55/3?auth_key=1413753727-0-0-bef639f07f6ddabacfa0213594fa659b`,
             sortOrder: channelData?.sortOrder || config.order,
             createdAt: channelData?.updatedAt || '2025-10-03T12:00:00Z',
-            preloadConfig: preloadConfig  // ✨ 直接从频道配置读取（已过滤错误值）
+            preloadConfig: preloadConfig,  // ✨ 直接从频道配置读取（已过滤错误值）
+            recordConfig: recordConfig      // 🆕 添加录制配置
           });
         }
 
