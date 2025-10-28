@@ -299,35 +299,63 @@ async function handleSave() {
     
     saving.value = true;
     
+    console.log('💾 开始保存配置', {
+      channelId: props.channelId,
+      channelName: props.channelName,
+      recordEnabled: form.value.recordConfig.enabled,
+      preloadEnabled: form.value.preloadConfig.enabled
+    });
+    
     // 并行保存预加载和录制配置
     const promises = [];
     
-    promises.push(
-      axios.put(`/api/preload/config/${props.channelId}`, {
-        enabled: form.value.preloadConfig.enabled,
-        startTime: form.value.preloadConfig.startTime,
-        endTime: form.value.preloadConfig.endTime,
-        workdaysOnly: form.value.preloadConfig.workdaysOnly
-      })
-    );
+    const preloadData = {
+      enabled: form.value.preloadConfig.enabled,
+      startTime: form.value.preloadConfig.startTime,
+      endTime: form.value.preloadConfig.endTime,
+      workdaysOnly: form.value.preloadConfig.workdaysOnly
+    };
+    console.log('📤 预加载配置:', preloadData);
+    promises.push(axios.put(`/api/preload/config/${props.channelId}`, preloadData));
     
-    promises.push(
-      axios.put(`/api/record/config/${props.channelId}`, {
-        enabled: form.value.recordConfig.enabled,
-        startTime: form.value.recordConfig.startTime,
-        endTime: form.value.recordConfig.endTime,
-        workdaysOnly: form.value.recordConfig.workdaysOnly,
-        storagePath: form.value.recordConfig.storagePath
-      })
-    );
+    const recordData = {
+      enabled: form.value.recordConfig.enabled,
+      startTime: form.value.recordConfig.startTime,
+      endTime: form.value.recordConfig.endTime,
+      workdaysOnly: form.value.recordConfig.workdaysOnly,
+      storagePath: form.value.recordConfig.storagePath
+    };
+    console.log('📤 录制配置:', recordData);
+    promises.push(axios.put(`/api/record/config/${props.channelId}`, recordData));
     
     const results = await Promise.all(promises);
+    
+    console.log('📥 保存结果:', results.map(r => ({
+      status: r.data.status,
+      message: r.data.message
+    })));
     
     // 检查所有结果
     const allSuccess = results.every(res => res.data.status === 'success');
     
     if (allSuccess) {
-      ElMessage.success('频道配置已保存');
+      console.log('✅ 所有配置保存成功');
+      
+      // 🔧 新增：保存成功后验证配置是否真的生效
+      await new Promise(resolve => setTimeout(resolve, 1000)); // 等待1秒
+      const verifyResponse = await axios.get(`/api/record/config/${props.channelId}?t=${Date.now()}`);
+      console.log('🔍 保存后验证:', verifyResponse.data.data);
+      
+      if (verifyResponse.data.data.enabled !== form.value.recordConfig.enabled) {
+        console.error('⚠️ 警告：保存的值与验证结果不一致！', {
+          保存的值: form.value.recordConfig.enabled,
+          验证结果: verifyResponse.data.data.enabled
+        });
+        ElMessage.warning('配置已保存，但验证发现状态不一致，请刷新页面确认');
+      } else {
+        ElMessage.success('频道配置已保存');
+      }
+      
       emit('saved');
       handleClose();
     } else {
