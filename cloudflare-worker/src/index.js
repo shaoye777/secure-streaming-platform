@@ -250,6 +250,93 @@ async function handleRequest(request, env, ctx) {
       });
     }
 
+    // 🆕 视频清理配置API路由
+    // GET /api/admin/cleanup/config - 获取清理配置
+    if (path === '/api/admin/cleanup/config' && method === 'GET') {
+      try {
+        const configData = await env.YOYO_USER_DB.get('system:cleanup:config');
+        const config = configData ? JSON.parse(configData) : {
+          enabled: true,
+          retentionDays: 2
+        };
+        
+        return new Response(JSON.stringify({
+          status: 'success',
+          data: config
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        return new Response(JSON.stringify({
+          status: 'error',
+          message: error.message
+        }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
+    // PUT /api/admin/cleanup/config - 更新清理配置
+    if (path === '/api/admin/cleanup/config' && method === 'PUT') {
+      try {
+        const body = await request.json();
+        
+        const config = {
+          enabled: body.enabled === true,
+          retentionDays: Math.max(1, parseInt(body.retentionDays) || 2)
+        };
+        
+        await env.YOYO_USER_DB.put('system:cleanup:config', JSON.stringify(config));
+        
+        return new Response(JSON.stringify({
+          status: 'success',
+          data: config
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        return new Response(JSON.stringify({
+          status: 'error',
+          message: error.message
+        }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
+    // POST /api/admin/cleanup/trigger - 手动触发清理
+    if (path === '/api/admin/cleanup/trigger' && method === 'POST') {
+      try {
+        // 调用VPS的清理端点
+        const vpsUrl = 'https://yoyo-vps.5202021.xyz/api/admin/cleanup/execute';
+        const vpsResponse = await fetch(vpsUrl, {
+          method: 'POST',
+          headers: {
+            'X-API-Key': env.VPS_API_KEY
+          }
+        });
+        
+        const result = await vpsResponse.json();
+        
+        return new Response(JSON.stringify(result), {
+          status: vpsResponse.status,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        return new Response(JSON.stringify({
+          status: 'error',
+          message: error.message
+        }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
     // 获取频道列表（前端使用，需要包含KV更新的数据）
     if (path === '/api/streams' && method === 'GET') {
       try {
