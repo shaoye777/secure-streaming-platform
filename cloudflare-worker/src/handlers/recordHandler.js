@@ -124,7 +124,8 @@ async function updateRecordConfig(env, channelId, data, username) {
  */
 async function notifyVpsReload(env, channelId) {
   try {
-    const response = await fetch(`${env.VPS_API_URL}/api/record/reload-schedule`, {
+    // 🔧 修复：使用正确的路由前缀 /api/simple-stream/record/reload-schedule
+    const response = await fetch(`${env.VPS_API_URL}/api/simple-stream/record/reload-schedule`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -134,7 +135,10 @@ async function notifyVpsReload(env, channelId) {
     });
     
     if (!response.ok) {
-      console.warn('Failed to notify VPS reload:', response.statusText);
+      const errorText = await response.text();
+      console.warn('Failed to notify VPS reload:', response.statusText, errorText);
+    } else {
+      console.log('✅ VPS录制调度已成功重载', { channelId });
     }
   } catch (error) {
     console.error('Failed to notify VPS:', error);
