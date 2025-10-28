@@ -28,6 +28,11 @@ class SimpleStreamManager {
     // 🆕 预加载频道集合 Set<channelId>
     this.preloadChannels = new Set();
 
+    // 🆕 录制功能属性
+    this.recordingChannels = new Set();  // 录制中的频道集合
+    this.recordingConfigs = new Map();   // 频道录制配置 Map<channelId, recordConfig>
+    this.recordingBaseDir = process.env.RECORDINGS_BASE_DIR || '/var/www/recordings';
+
     // FFmpeg配置
     this.ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg';
     this.hlsOutputDir = process.env.HLS_OUTPUT_DIR || '/var/www/hls';
@@ -185,6 +190,11 @@ class SimpleStreamManager {
     for (const [channelId, lastHeartbeat] of this.channelHeartbeats) {
       // 🆕 跳过预加载频道
       if (this.preloadChannels.has(channelId)) {
+        continue;
+      }
+      
+      // 🆕 跳过录制频道
+      if (this.recordingChannels.has(channelId)) {
         continue;
       }
       
@@ -663,6 +673,310 @@ class SimpleStreamManager {
     };
   }
 
+  // ===== 🆕 录制功能 =====
+
+  /**
+   * 从Workers API获取频道RTMP URL
+   * @param {string} channelId - 频道ID
+   * @returns {string} RTMP URL
+   */
+  async fetchChannelRtmpUrl(channelId) {
+    try {
+      const workersApiUrl = process.env.WORKERS_API_URL || 'https://yoyoapi.5202021.xyz';
+      const apiKey = process.env.VPS_API_KEY;
+      
+      const response = await fetch(`${workersApiUrl}/api/channels/${channelId}`, {
+        headers: {
+          'X-API-Key': apiKey
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch channel config: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      return data.data.rtmpUrl;
+    } catch (error) {
+      logger.error('Failed to fetch channel RTMP URL', { channelId, error: error.message });
+      throw error;
+    }
+  }
+
+  /**
+   * 启用录制
+   * @param {string} channelId - 频道ID
+   * @param {Object} recordConfig - 录制配置（包含channelName）
+   */
+  async enableRecording(channelId, recordConfig) {
+    try {
+      logger.info('Enabling recording', { channelId, recordConfig });
+      
+      // 保存录制配置
+      this.recordingConfigs.set(channelId, recordConfig);
+      this.recordingChannels.add(channelId);
+      
+      // 检查现有进程
+      const existing = this.activeStreams.get(channelId);
+      if (existing) {
+        // 已有进程，需要重启以添加录制输出
+        logger.info('Restarting stream with recording', { channelId });
+        await this.stopFFmpegProcess(channelId);
+        await this.startStreamWithRecording(channelId, existing.rtmpUrl, recordConfig);
+      } else {
+        // 无进程，启动新进程（包含录制）
+        const rtmpUrl = recordConfig.rtmpUrl || await this.fetchChannelRtmpUrl(channelId);
+        await this.startStreamWithRecording(channelId, rtmpUrl, recordConfig);
+      }
+      
+      return {
+        status: 'success',
+        message: 'Recording enabled',
+        data: { channelId, isRecording: true }
+      };
+    } catch (error) {
+      logger.error('Failed to enable recording', { channelId, error: error.message });
+      this.recordingChannels.delete(channelId);
+      this.recordingConfigs.delete(channelId);
+      throw error;
+    }
+  }
+
+  /**
+   * 禁用录制
+   * @param {string} channelId - 频道ID
+   */
+  async disableRecording(channelId) {
+    try {
+      logger.info('Disabling recording', { channelId });
+      
+      // 移除录制标记
+      this.recordingChannels.delete(channelId);
+      this.recordingConfigs.delete(channelId);
+      
+      const existing = this.activeStreams.get(channelId);
+      if (existing && existing.isRecording) {
+        const hasViewers = this.channelHeartbeats.has(channelId);
+        const isPreload = this.preloadChannels.has(channelId);
+        
+        if (hasViewers || isPreload) {
+          // 有观看者或预加载，重启进程移除录制
+          logger.info('Restarting stream without recording', { channelId });
+          await this.stopFFmpegProcess(channelId);
+          await this.startWatching(channelId, existing.rtmpUrl);
+        } else {
+          // 无观看者和预加载，直接停止
+          await this.stopChannel(channelId);
+        }
+      }
+      
+      return {
+        status: 'success',
+        message: 'Recording disabled',
+        data: { channelId }
+      };
+    } catch (error) {
+      logger.error('Failed to disable recording', { channelId, error: error.message });
+      throw error;
+    }
+  }
+
+  /**
+   * 启动带录制的流
+   * @param {string} channelId - 频道ID
+   * @param {string} rtmpUrl - RTMP源地址
+   * @param {Object} recordConfig - 录制配置
+   */
+  async startStreamWithRecording(channelId, rtmpUrl, recordConfig) {
+    const recordingPath = this.generateRecordingPath(channelId, recordConfig.channelName, recordConfig);
+    
+    const processInfo = {
+      channelId: channelId,
+      rtmpUrl: rtmpUrl,
+      hlsUrl: `https://yoyo-vps.5202021.xyz/hls/${channelId}/playlist.m3u8`,
+      startTime: Date.now(),
+      process: null,
+      isRecording: true,
+      recordingPath: recordingPath
+    };
+    
+    try {
+      // 启动FFmpeg进程（包含录制）
+      processInfo.process = await this.spawnFFmpegWithRecording(channelId, rtmpUrl, recordingPath);
+      
+      // 保存进程信息
+      this.activeStreams.set(channelId, processInfo);
+      
+      // 设置心跳
+      this.channelHeartbeats.set(channelId, Date.now());
+      
+      logger.info('Started stream with recording', { channelId, recordingPath });
+      return processInfo.hlsUrl;
+    } catch (error) {
+      logger.error('Failed to start stream with recording', { channelId, error: error.message });
+      throw error;
+    }
+  }
+
+  /**
+   * 启动带录制的FFmpeg进程
+   * @param {string} channelId - 频道ID
+   * @param {string} rtmpUrl - RTMP源地址
+   * @param {string} recordingPath - 录制文件路径
+   */
+  async spawnFFmpegWithRecording(channelId, rtmpUrl, recordingPath) {
+    const outputDir = path.join(this.hlsOutputDir, channelId);
+    const recordDir = path.dirname(recordingPath);
+    
+    // 确保目录存在
+    if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true });
+    }
+    if (!fs.existsSync(recordDir)) {
+      fs.mkdirSync(recordDir, { recursive: true });
+    }
+    
+    const outputFile = path.join(outputDir, 'playlist.m3u8');
+    const ffmpegArgs = [
+      '-i', rtmpUrl,
+      '-c:v', 'libx264',
+      '-preset', 'ultrafast',
+      '-an',
+      
+      // HLS输出
+      '-f', 'hls',
+      '-hls_time', '2',
+      '-hls_list_size', '6',
+      '-hls_segment_filename', path.join(outputDir, 'segment%03d.ts'),
+      '-hls_allow_cache', '0',
+      '-start_number', '0',
+      '-y',
+      outputFile,
+      
+      // MP4录制输出（复制编码）
+      '-c:v', 'copy',
+      '-f', 'mp4',
+      '-y',
+      recordingPath
+    ];
+
+    logger.info('Starting FFmpeg with recording', {
+      channelId,
+      rtmpUrl,
+      recordingPath,
+      command: `${this.ffmpegPath} ${ffmpegArgs.join(' ')}`
+    });
+
+    // 检查代理状态
+    const env = { ...process.env };
+    try {
+      const { execSync } = require('child_process');
+      const result = execSync('ps aux | grep v2ray | grep -v grep', { encoding: 'utf8' });
+      
+      if (result.trim()) {
+        env.http_proxy = 'socks5://127.0.0.1:1080';
+        env.https_proxy = 'socks5://127.0.0.1:1080';
+        env.HTTP_PROXY = 'socks5://127.0.0.1:1080';
+        env.HTTPS_PROXY = 'socks5://127.0.0.1:1080';
+        logger.info('FFmpeg will use proxy for RTMP connection', { channelId });
+      }
+    } catch (error) {
+      logger.warn('No proxy detected, using direct connection', { channelId });
+    }
+
+    // 启动FFmpeg进程
+    const ffmpegProcess = spawn(this.ffmpegPath, ffmpegArgs, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: false,
+      env: env
+    });
+
+    // 设置进程事件处理
+    ffmpegProcess.on('error', (error) => {
+      logger.error('FFmpeg process error', { channelId, error: error.message });
+      this.activeStreams.delete(channelId);
+    });
+
+    ffmpegProcess.on('exit', (code, signal) => {
+      logger.info('FFmpeg process exited', { channelId, code, signal });
+      this.activeStreams.delete(channelId);
+    });
+
+    ffmpegProcess.stderr.on('data', (data) => {
+      const output = data.toString();
+      logger.info('FFmpeg stderr', { channelId, output: output.trim() });
+      if (output.includes('error') || output.includes('failed')) {
+        logger.error('FFmpeg error detected', { channelId, output: output.trim() });
+      }
+    });
+
+    // 等待流准备就绪
+    await this.waitForStreamReady(channelId, 30000);
+
+    logger.info('FFmpeg process with recording started successfully', { 
+      channelId, 
+      pid: ffmpegProcess.pid,
+      recordingPath 
+    });
+    
+    return ffmpegProcess;
+  }
+
+  /**
+   * 生成录制文件路径
+   * @param {string} channelId - 频道ID
+   * @param {string} channelName - 频道名称
+   * @param {Object} recordConfig - 录制配置
+   * @returns {string} 录制文件完整路径
+   */
+  generateRecordingPath(channelId, channelName, recordConfig) {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const seconds = String(now.getSeconds()).padStart(2, '0');
+    
+    const dateStr = `${year}${month}${day}`;
+    const timeStr = `${hours}${minutes}${seconds}`;
+    
+    // 解析结束时间
+    const [endHour, endMin] = recordConfig.endTime.split(':');
+    const endTimeStr = `${endHour}${endMin}00`;
+    
+    const basePath = recordConfig.storagePath || this.recordingBaseDir;
+    
+    // 使用混合命名方案：channelName + channelId
+    const filename = `${channelName}_${channelId}_${dateStr}_${timeStr}_to_${endTimeStr}.mp4`;
+    
+    return path.join(basePath, channelId, dateStr, filename);
+  }
+
+  /**
+   * 获取录制状态
+   */
+  getRecordingStatus() {
+    const recordingChannels = Array.from(this.recordingChannels).map(channelId => {
+      const streamInfo = this.activeStreams.get(channelId);
+      const config = this.recordingConfigs.get(channelId);
+      return {
+        channelId,
+        isActive: streamInfo ? true : false,
+        isRecording: streamInfo ? streamInfo.isRecording : false,
+        recordingPath: streamInfo ? streamInfo.recordingPath : null,
+        startedAt: streamInfo ? streamInfo.startedAt : null,
+        config: config
+      };
+    });
+    
+    return {
+      totalRecordingChannels: this.recordingChannels.size,
+      activeRecordingChannels: recordingChannels.filter(c => c.isActive).length,
+      channels: recordingChannels
+    };
+  }
+
   /**
    * 销毁管理器
    */
@@ -679,6 +993,8 @@ class SimpleStreamManager {
     this.activeStreams.clear();
     this.channelHeartbeats.clear();
     this.preloadChannels.clear();
+    this.recordingChannels.clear();
+    this.recordingConfigs.clear();
     
     logger.info('SimpleStreamManager destroyed');
   }
