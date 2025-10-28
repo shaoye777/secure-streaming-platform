@@ -144,65 +144,45 @@ async function notifyVpsReload(env, channelId) {
 
 /**
  * 录制配置API处理器
+ * 参考preloadHandler的实现模式
  */
 async function handleRecordAPI(request, env) {
   const url = new URL(request.url);
-  const path = url.pathname;
+  const pathname = url.pathname;
   const method = request.method;
   
   try {
-    // 验证API密钥（VPS调用）或用户会话
-    const apiKey = request.headers.get('X-API-Key');
-    const isVPSRequest = apiKey === env.VPS_API_KEY;
+    // 从cookie获取用户信息（用于记录操作者）
+    const cookieHeader = request.headers.get('Cookie') || '';
+    const cookies = Object.fromEntries(
+      cookieHeader.split(';').map(c => c.trim().split('='))
+    );
+    const sessionToken = cookies.session_token;
+    let username = 'unknown';
     
-    // VPS请求：直接验证API密钥
-    if (path === '/api/record/configs' && method === 'GET') {
-      if (!isVPSRequest) {
-        return new Response(JSON.stringify({
-          status: 'error',
-          message: 'Invalid API key'
-        }), {
-          status: 401,
-          headers: { 'Content-Type': 'application/json' }
-        });
+    if (sessionToken) {
+      try {
+        const sessionKey = `SESSION:${sessionToken}`;
+        const session = await env.YOYO_USER_DB.get(sessionKey, { type: 'json' });
+        if (session && session.username) {
+          username = session.username;
+        }
+      } catch (error) {
+        console.error('Failed to get session:', error);
       }
-      
+    }
+    
+    // GET /api/record/configs - 获取所有启用录制的频道配置（供VPS调度器调用）
+    if (method === 'GET' && pathname === '/api/record/configs') {
       const result = await getAllRecordConfigs(env);
       return new Response(JSON.stringify(result), {
         headers: { 'Content-Type': 'application/json' }
       });
     }
     
-    // 管理员请求：需要验证会话
-    const sessionToken = request.headers.get('Authorization')?.replace('Bearer ', '');
-    if (!sessionToken && !isVPSRequest) {
-      return new Response(JSON.stringify({
-        status: 'error',
-        message: 'Unauthorized'
-      }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-    
-    let username = 'vps';
-    if (sessionToken) {
-      const sessionData = await env.YOYO_USER_DB.get(`session:${sessionToken}`, { type: 'json' });
-      if (!sessionData) {
-        return new Response(JSON.stringify({
-          status: 'error',
-          message: 'Invalid session'
-        }), {
-          status: 401,
-          headers: { 'Content-Type': 'application/json' }
-        });
-      }
-      username = sessionData.username;
-    }
-    
     // GET /api/record/config/:channelId - 获取单个频道录制配置
-    if (path.match(/^\/api\/record\/config\/[^\/]+$/) && method === 'GET') {
-      const channelId = path.split('/').pop();
+    if (method === 'GET' && pathname.match(/^\/api\/record\/config\/[\w-]+$/)) {
+      const channelId = pathname.split('/').pop();
       const result = await getRecordConfig(env, channelId);
       return new Response(JSON.stringify(result), {
         headers: { 'Content-Type': 'application/json' }
@@ -210,8 +190,8 @@ async function handleRecordAPI(request, env) {
     }
     
     // PUT /api/record/config/:channelId - 更新频道录制配置
-    if (path.match(/^\/api\/record\/config\/[^\/]+$/) && method === 'PUT') {
-      const channelId = path.split('/').pop();
+    if (method === 'PUT' && pathname.match(/^\/api\/record\/config\/[\w-]+$/)) {
+      const channelId = pathname.split('/').pop();
       const data = await request.json();
       const result = await updateRecordConfig(env, channelId, data, username);
       return new Response(JSON.stringify(result), {
