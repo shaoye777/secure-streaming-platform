@@ -750,11 +750,13 @@ class SimpleStreamManager {
     try {
       logger.info('Disabling recording', { channelId });
       
+      const existing = this.activeStreams.get(channelId);
+      const oldRecordingPath = existing?.recordingPath;
+      
       // 移除录制标记
       this.recordingChannels.delete(channelId);
       this.recordingConfigs.delete(channelId);
       
-      const existing = this.activeStreams.get(channelId);
       if (existing && existing.isRecording) {
         const hasViewers = this.channelHeartbeats.has(channelId);
         const isPreload = this.preloadChannels.has(channelId);
@@ -767,6 +769,11 @@ class SimpleStreamManager {
         } else {
           // 无观看者和预加载，直接停止
           await this.stopChannel(channelId);
+        }
+        
+        // 🔧 重命名录制文件，将结束时间改为实际停止时间
+        if (oldRecordingPath) {
+          await this.renameRecordingWithActualEndTime(oldRecordingPath);
         }
       }
       
@@ -954,6 +961,71 @@ class SimpleStreamManager {
     const filename = `${channelName}_${channelId}_${dateStr}_${timeStr}_to_${endTimeStr}.mp4`;
     
     return path.join(basePath, channelId, dateStr, filename);
+  }
+
+  /**
+   * 重命名录制文件，将结束时间改为实际停止时间
+   * @param {string} oldPath - 原始文件路径
+   */
+  async renameRecordingWithActualEndTime(oldPath) {
+    try {
+      // 等待2秒确保FFmpeg完成文件写入
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      if (!fs.existsSync(oldPath)) {
+        logger.warn('Recording file not found for rename', { oldPath });
+        return;
+      }
+      
+      // 获取当前北京时间作为实际结束时间
+      const now = new Date();
+      const beijingTime = new Date(now.getTime() + 8 * 60 * 60 * 1000);
+      const hours = String(beijingTime.getUTCHours()).padStart(2, '0');
+      const minutes = String(beijingTime.getUTCMinutes()).padStart(2, '0');
+      const seconds = String(beijingTime.getUTCSeconds()).padStart(2, '0');
+      const actualEndTime = `${hours}${minutes}${seconds}`;
+      
+      // 解析原文件名
+      const filename = path.basename(oldPath);
+      const match = filename.match(/_to_(\d{6})\.mp4$/);
+      
+      if (!match) {
+        logger.warn('Failed to parse recording filename for rename', { filename });
+        return;
+      }
+      
+      const configuredEndTime = match[1];
+      
+      // 🔧 统一逻辑：无论定时任务还是手动关闭，都使用实际结束时间
+      // 这样文件名完全反映真实的录制时段
+      const newFilename = filename.replace(/_to_\d{6}\.mp4$/, `_to_${actualEndTime}.mp4`);
+      
+      // 如果实际时间和配置时间相同，无需重命名
+      if (actualEndTime === configuredEndTime) {
+        logger.info('Recording end time matches configured time, skip rename', {
+          filename,
+          actualEndTime
+        });
+        return;
+      }
+      
+      const newPath = path.join(path.dirname(oldPath), newFilename);
+      
+      // 重命名文件
+      fs.renameSync(oldPath, newPath);
+      
+      logger.info('Recording file renamed with actual end time', {
+        oldPath,
+        newPath,
+        configuredEndTime,
+        actualEndTime
+      });
+    } catch (error) {
+      logger.error('Failed to rename recording file', {
+        oldPath,
+        error: error.message
+      });
+    }
   }
 
   /**
