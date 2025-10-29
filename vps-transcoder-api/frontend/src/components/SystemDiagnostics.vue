@@ -2,7 +2,7 @@
   <div class="system-diagnostics">
     <!-- 系统状态概览 -->
     <el-row :gutter="20" class="status-overview" style="margin-bottom: 15px;">
-      <el-col :span="6">
+      <el-col :xs="12" :sm="12" :md="6" :lg="6">
         <el-card class="status-card" shadow="hover">
           <div class="status-item">
             <div class="status-icon">
@@ -18,7 +18,7 @@
         </el-card>
       </el-col>
 
-      <el-col :span="6">
+      <el-col :xs="12" :sm="12" :md="6" :lg="6">
         <el-card class="status-card" shadow="hover">
           <div class="status-item">
             <div class="status-icon">
@@ -34,7 +34,7 @@
         </el-card>
       </el-col>
 
-      <el-col :span="6">
+      <el-col :xs="12" :sm="12" :md="6" :lg="6">
         <el-card class="status-card" shadow="hover">
           <div class="status-item">
             <div class="status-icon">
@@ -50,7 +50,7 @@
         </el-card>
       </el-col>
 
-      <el-col :span="6">
+      <el-col :xs="12" :sm="12" :md="6" :lg="6">
         <el-card class="status-card" shadow="hover">
           <div class="status-item">
             <div class="status-icon">
@@ -59,7 +59,7 @@
               </el-icon>
             </div>
             <div class="status-info">
-              <div class="status-value">{{ formatTime(systemStatus.cloudflare?.worker?.timestamp) }}</div>
+              <div class="status-value">{{ formatRunTime(systemStatus.cloudflare?.worker?.timestamp) }}</div>
               <div class="status-label">运行时间</div>
             </div>
           </div>
@@ -117,7 +117,7 @@
     <!-- 详细信息 -->
     <el-row :gutter="20">
       <!-- 缓存统计 -->
-      <el-col :span="12">
+      <el-col :xs="24" :sm="24" :md="12" :lg="12">
         <el-card shadow="never" style="height: 450px;">
           <template #header>
             <div class="card-header">
@@ -177,7 +177,7 @@
       </el-col>
 
       <!-- 系统诊断 -->
-      <el-col :span="12">
+      <el-col :xs="24" :sm="24" :md="12" :lg="12">
         <el-card shadow="never" style="height: 450px;">
           <template #header>
             <div class="card-header">
@@ -229,7 +229,7 @@
 
     <!-- 流量统计 -->
     <el-row style="margin-top: 20px;" :gutter="20">
-      <el-col :span="12">
+      <el-col :xs="24" :sm="24" :md="12" :lg="12">
         <el-card shadow="never" style="height: 400px;">
           <template #header>
             <div class="card-header">
@@ -281,7 +281,7 @@
       </el-col>
 
       <!-- 登录日志 -->
-      <el-col :span="12">
+      <el-col :xs="24" :sm="24" :md="12" :lg="12">
         <el-card shadow="never" style="height: 500px;">
           <template #header>
             <div class="card-header">
@@ -498,6 +498,13 @@ const formatBytes = (bytes) => {
 const formatTime = (timestamp) => {
   if (!timestamp) return 'N/A'
   return new Date(timestamp).toLocaleString('zh-CN')
+}
+
+// 格式化运行时间（只显示时间部分）
+const formatRunTime = (timestamp) => {
+  if (!timestamp) return 'N/A'
+  const date = new Date(timestamp)
+  return date.toLocaleTimeString('zh-CN', { hour12: false })
 }
 
 const formatUptime = (seconds) => {
@@ -962,7 +969,7 @@ onUnmounted(() => {
     padding: 10px 0;
   }
 
-  /* 状态卡片移动端优化 */
+  /* 状态卡片移动端优化 - 每行2个 */
   .status-overview .el-col {
     margin-bottom: 10px;
   }
@@ -972,15 +979,24 @@ onUnmounted(() => {
   }
   
   .status-item {
-    padding: 15px;
+    padding: 12px 10px;
+  }
+  
+  .status-icon {
+    margin-right: 8px;
+  }
+  
+  .status-icon .el-icon {
+    font-size: 24px !important;
   }
   
   .status-value {
-    font-size: 20px;
+    font-size: 18px;
   }
   
   .status-label {
-    font-size: 12px;
+    font-size: 11px;
+    margin-top: 2px;
   }
 
   /* 按钮组移动端优化 */
@@ -1000,13 +1016,19 @@ onUnmounted(() => {
     text-align: center;
   }
 
-  /* 卡片布局移动端优化 */
+  /* 卡片布局移动端优化 - 每行1个 */
   .el-row .el-col {
     margin-bottom: 15px;
   }
   
   .el-card {
     margin-bottom: 15px;
+    height: auto !important;
+  }
+  
+  /* 卡片标题移动端优化 */
+  .card-header h3 {
+    font-size: 16px;
   }
   
   /* 表格移动端优化 */
