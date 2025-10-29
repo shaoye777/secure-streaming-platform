@@ -635,7 +635,7 @@ async function handleRequest(request, env, ctx) {
     // 心跳
     if (path === '/api/simple-stream/heartbeat' && method === 'POST') {
       const body = await request.json();
-      const { channelId } = body;
+      const { channelId, sessionId } = body;  // 🔥 修复：提取sessionId
       
       if (!channelId) {
         return new Response(JSON.stringify({
@@ -647,13 +647,14 @@ async function handleRequest(request, env, ctx) {
         });
       }
       
+      // 🔥 修复：转发完整的请求body（包括sessionId）
       const vpsResponse = await fetch(`${env.VPS_API_URL}/api/simple-stream/heartbeat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-API-Key': env.VPS_API_KEY
         },
-        body: JSON.stringify({ channelId })
+        body: JSON.stringify({ channelId, sessionId })  // 🔥 修复：转发sessionId
       });
       
       const responseData = await vpsResponse.json();
