@@ -22,13 +22,13 @@
         <el-card class="status-card" shadow="hover">
           <div class="status-item">
             <div class="status-icon">
-              <el-icon size="32" color="#409eff">
-                <DataBoard />
+              <el-icon size="32" :color="systemStatus.streams?.active > 0 ? '#67c23a' : '#909399'">
+                <VideoCamera />
               </el-icon>
             </div>
             <div class="status-info">
-              <div class="status-value">{{ cacheStats.totalItems || 0 }}</div>
-              <div class="status-label">缓存条目</div>
+              <div class="status-value">{{ systemStatus.streams?.active || 0 }}</div>
+              <div class="status-label">活跃转码</div>
             </div>
           </div>
         </el-card>
@@ -417,7 +417,8 @@ import {
   Clock,
   Refresh,
   Delete,
-  Download
+  Download,
+  VideoCamera
 } from '@element-plus/icons-vue'
 import axios from '../utils/axios'
 import { debugLog, errorLog, infoLog } from '../utils/config'
