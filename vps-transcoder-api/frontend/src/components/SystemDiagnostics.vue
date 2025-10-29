@@ -11,6 +11,7 @@
     
     <!-- 系统状态概览 -->
     <el-row :gutter="10" class="status-overview" style="margin-bottom: 15px;">
+      <!-- 1. 系统状态 -->
       <el-col :xs="12" :sm="8" :md="4" :lg="4">
         <el-card class="status-card" shadow="hover">
           <div class="status-item">
@@ -27,22 +28,7 @@
         </el-card>
       </el-col>
 
-      <el-col :xs="12" :sm="8" :md="4" :lg="4">
-        <el-card class="status-card" shadow="hover">
-          <div class="status-item">
-            <div class="status-icon">
-              <el-icon size="28" :color="systemStatus.streams?.active > 0 ? '#67c23a' : '#909399'">
-                <VideoCamera />
-              </el-icon>
-            </div>
-            <div class="status-info">
-              <div class="status-value">{{ systemStatus.streams?.active || 0 }}</div>
-              <div class="status-label">活跃转码</div>
-            </div>
-          </div>
-        </el-card>
-      </el-col>
-
+      <!-- 2. 频道总数 -->
       <el-col :xs="12" :sm="8" :md="4" :lg="4">
         <el-card class="status-card" shadow="hover">
           <div class="status-item">
@@ -59,6 +45,7 @@
         </el-card>
       </el-col>
 
+      <!-- 3. 在线用户 -->
       <el-col :xs="12" :sm="8" :md="4" :lg="4">
         <el-card class="status-card" shadow="hover">
           <div class="status-item">
@@ -75,6 +62,7 @@
         </el-card>
       </el-col>
 
+      <!-- 4. 活跃播放 -->
       <el-col :xs="12" :sm="8" :md="4" :lg="4">
         <el-card class="status-card" shadow="hover">
           <div class="status-item">
@@ -91,6 +79,24 @@
         </el-card>
       </el-col>
 
+      <!-- 5. 活跃转码 -->
+      <el-col :xs="12" :sm="8" :md="4" :lg="4">
+        <el-card class="status-card" shadow="hover">
+          <div class="status-item">
+            <div class="status-icon">
+              <el-icon size="28" :color="systemStatus.streams?.active > 0 ? '#67c23a' : '#909399'">
+                <VideoCamera />
+              </el-icon>
+            </div>
+            <div class="status-info">
+              <div class="status-value">{{ systemStatus.streams?.active || 0 }}</div>
+              <div class="status-label">活跃转码</div>
+            </div>
+          </div>
+        </el-card>
+      </el-col>
+
+      <!-- 6. 活跃录制 -->
       <el-col :xs="12" :sm="8" :md="4" :lg="4">
         <el-card class="status-card" shadow="hover">
           <div class="status-item">

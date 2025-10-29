@@ -27,7 +27,7 @@
             <UserManager v-if="loadedTabs.has('users')" />
           </el-tab-pane>
 
-          <el-tab-pane label="系统诊断" name="diagnostics">
+          <el-tab-pane label="系统状态" name="diagnostics">
             <SystemDiagnostics v-if="loadedTabs.has('diagnostics')" />
           </el-tab-pane>
 
