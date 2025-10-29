@@ -10,12 +10,12 @@
     />
     
     <!-- 系统状态概览 -->
-    <el-row :gutter="20" class="status-overview" style="margin-bottom: 15px;">
-      <el-col :xs="12" :sm="12" :md="8" :lg="8">
+    <el-row :gutter="10" class="status-overview" style="margin-bottom: 15px;">
+      <el-col :xs="8" :sm="6" :md="3" :lg="3">
         <el-card class="status-card" shadow="hover">
           <div class="status-item">
             <div class="status-icon">
-              <el-icon size="32" color="#67c23a">
+              <el-icon size="24" color="#67c23a">
                 <CircleCheck />
               </el-icon>
             </div>
@@ -27,11 +27,11 @@
         </el-card>
       </el-col>
 
-      <el-col :xs="12" :sm="12" :md="8" :lg="8">
+      <el-col :xs="8" :sm="6" :md="3" :lg="3">
         <el-card class="status-card" shadow="hover">
           <div class="status-item">
             <div class="status-icon">
-              <el-icon size="32" :color="systemStatus.streams?.active > 0 ? '#67c23a' : '#909399'">
+              <el-icon size="24" :color="systemStatus.streams?.active > 0 ? '#67c23a' : '#909399'">
                 <VideoCamera />
               </el-icon>
             </div>
@@ -43,11 +43,11 @@
         </el-card>
       </el-col>
 
-      <el-col :xs="12" :sm="12" :md="8" :lg="8">
+      <el-col :xs="8" :sm="6" :md="3" :lg="3">
         <el-card class="status-card" shadow="hover">
           <div class="status-item">
             <div class="status-icon">
-              <el-icon size="32" color="#409eff">
+              <el-icon size="24" color="#409eff">
                 <List />
               </el-icon>
             </div>
@@ -59,12 +59,28 @@
         </el-card>
       </el-col>
 
-      <el-col :xs="12" :sm="12" :md="8" :lg="8">
+      <el-col :xs="8" :sm="6" :md="3" :lg="3">
         <el-card class="status-card" shadow="hover">
           <div class="status-item">
             <div class="status-icon">
-              <el-icon size="32" :color="systemStatus.sessions?.total > 0 ? '#67c23a' : '#909399'">
+              <el-icon size="24" color="#e6a23c">
                 <User />
+              </el-icon>
+            </div>
+            <div class="status-info">
+              <div class="status-value">1</div>
+              <div class="status-label">在线用户</div>
+            </div>
+          </div>
+        </el-card>
+      </el-col>
+
+      <el-col :xs="8" :sm="6" :md="3" :lg="3">
+        <el-card class="status-card" shadow="hover">
+          <div class="status-item">
+            <div class="status-icon">
+              <el-icon size="24" :color="systemStatus.sessions?.total > 0 ? '#67c23a' : '#909399'">
+                <UserFilled />
               </el-icon>
             </div>
             <div class="status-info">
@@ -75,11 +91,11 @@
         </el-card>
       </el-col>
 
-      <el-col :xs="12" :sm="12" :md="8" :lg="8">
+      <el-col :xs="8" :sm="6" :md="3" :lg="3">
         <el-card class="status-card" shadow="hover">
           <div class="status-item">
             <div class="status-icon">
-              <el-icon size="32" :color="systemStatus.streams?.activeRecordings > 0 ? '#e6a23c' : '#909399'">
+              <el-icon size="24" :color="systemStatus.streams?.activeRecordings > 0 ? '#e6a23c' : '#909399'">
                 <VideoCameraFilled />
               </el-icon>
             </div>
@@ -91,11 +107,11 @@
         </el-card>
       </el-col>
 
-      <el-col :xs="12" :sm="12" :md="8" :lg="8">
+      <el-col :xs="8" :sm="6" :md="3" :lg="3">
         <el-card class="status-card" shadow="hover">
           <div class="status-item">
             <div class="status-icon">
-              <el-icon size="32" color="#f56c6c">
+              <el-icon size="24" color="#f56c6c">
                 <Clock />
               </el-icon>
             </div>
@@ -462,7 +478,8 @@ import {
   VideoCamera,
   VideoCameraFilled,
   List,
-  User
+  User,
+  UserFilled
 } from '@element-plus/icons-vue'
 import axios from '../utils/axios'
 import { debugLog, errorLog, infoLog } from '../utils/config'
@@ -875,11 +892,11 @@ onUnmounted(() => {
 .status-item {
   display: flex;
   align-items: center;
-  padding: 20px;
+  padding: 12px 8px;
 }
 
 .status-icon {
-  margin-right: 15px;
+  margin-right: 10px;
 }
 
 .status-info {
@@ -887,14 +904,14 @@ onUnmounted(() => {
 }
 
 .status-value {
-  font-size: 24px;
+  font-size: 20px;
   font-weight: bold;
   color: #303133;
-  margin-bottom: 5px;
+  margin-bottom: 4px;
 }
 
 .status-label {
-  font-size: 14px;
+  font-size: 12px;
   color: #909399;
 }
 
@@ -1022,23 +1039,23 @@ onUnmounted(() => {
   }
   
   .status-item {
-    padding: 12px 10px;
+    padding: 10px 6px;
   }
   
   .status-icon {
-    margin-right: 8px;
+    margin-right: 6px;
   }
   
   .status-icon .el-icon {
-    font-size: 24px !important;
+    font-size: 20px !important;
   }
   
   .status-value {
-    font-size: 18px;
+    font-size: 16px;
   }
   
   .status-label {
-    font-size: 11px;
+    font-size: 10px;
     margin-top: 2px;
   }
 
