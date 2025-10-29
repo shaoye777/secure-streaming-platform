@@ -1364,34 +1364,64 @@ async function handleRequest(request, env, ctx) {
       });
     }
 
+    // 🔥 V2.6: 缓存统计 - 移除list操作，使用索引计数
     if (path === '/api/admin/cache/stats' && method === 'GET') {
-      // 获取KV中的缓存项数量
-      let totalItems = 0;
-      let items = [];
       try {
-        const list = await env.YOYO_USER_DB.list({ limit: 100 });
-        totalItems = list.keys.length;
-        items = list.keys.map(k => k.name);
-      } catch (error) {
-        console.error('获取缓存统计失败:', error);
-      }
-      
-      return new Response(JSON.stringify({
-        status: 'success',
-        data: {
-          cache: {
-            totalItems: totalItems,
-            items: items,
-            hitRate: 95.5,
-            totalRequests: 1000,
-            cacheHits: 955,
-            cacheMisses: 45
+        // 从索引获取统计信息（避免list操作）
+        let totalChannels = 0;
+        let totalUsers = 0;
+        
+        // 读取频道索引
+        const channelIndexData = await env.YOYO_USER_DB.get('system:channel_index');
+        if (channelIndexData) {
+          try {
+            const channelIndex = JSON.parse(channelIndexData);
+            totalChannels = channelIndex.totalChannels || 0;
+          } catch (e) {
+            console.error('解析频道索引失败:', e);
           }
         }
-      }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      });
+        
+        // 读取用户索引
+        const userIndexData = await env.YOYO_USER_DB.get('system:user_index');
+        if (userIndexData) {
+          try {
+            const userIndex = JSON.parse(userIndexData);
+            totalUsers = userIndex.totalUsers || 0;
+          } catch (e) {
+            console.error('解析用户索引失败:', e);
+          }
+        }
+        
+        // 系统键数量（索引 + 配置等）
+        const systemKeys = 5; // channel_index, user_index, proxy:config, tunnel_config等
+        
+        return new Response(JSON.stringify({
+          status: 'success',
+          data: {
+            cache: {
+              totalItems: totalChannels + totalUsers + systemKeys,
+              channels: totalChannels,
+              users: totalUsers,
+              systemKeys: systemKeys,
+              // 移除items列表，避免list操作
+              note: '统计基于索引系统，避免KV list操作限制'
+            }
+          }
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json', ...corsHeaders }
+        });
+      } catch (error) {
+        console.error('获取缓存统计失败:', error);
+        return new Response(JSON.stringify({
+          status: 'error',
+          message: '获取缓存统计失败: ' + error.message
+        }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json', ...corsHeaders }
+        });
+      }
     }
 
     // 隧道配置API端点 - 从KV读取

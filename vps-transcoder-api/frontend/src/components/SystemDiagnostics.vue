@@ -189,34 +189,32 @@
                   {{ cacheStats.totalItems > 0 ? '有数据' : '空缓存' }}
                 </el-tag>
               </el-descriptions-item>
-              <el-descriptions-item label="缓存类型">
-                KV存储
+              <el-descriptions-item label="频道数量">
+                {{ cacheStats.channels || 0 }}
               </el-descriptions-item>
-              <el-descriptions-item label="可用性">
-                <el-tag type="success" size="small">正常</el-tag>
+              <el-descriptions-item label="用户数量">
+                {{ cacheStats.users || 0 }}
               </el-descriptions-item>
-              <el-descriptions-item label="最后检查">
-                {{ formatTime(new Date().toISOString()) }}
+              <el-descriptions-item label="系统配置">
+                {{ cacheStats.systemKeys || 0 }} 项
               </el-descriptions-item>
               <el-descriptions-item label="存储位置">
                 Cloudflare KV
               </el-descriptions-item>
+              <el-descriptions-item label="缓存类型">
+                索引系统
+              </el-descriptions-item>
+              <el-descriptions-item label="可用性">
+                <el-tag type="success" size="small">正常</el-tag>
+              </el-descriptions-item>
             </el-descriptions>
 
-            <!-- 缓存键列表 -->
-            <div class="cache-keys" v-if="cacheStats.items && cacheStats.items.length > 0">
-              <h4>缓存键列表</h4>
-              <el-tag
-                v-for="key in cacheStats.items.slice(0, 10)"
-                :key="key"
-                size="small"
-                class="cache-key-tag"
-              >
-                {{ key }}
-              </el-tag>
-              <el-tag v-if="cacheStats.items.length > 10" size="small" type="info">
-                +{{ cacheStats.items.length - 10 }} more...
-              </el-tag>
+            <!-- 🔥 V2.6: 移除缓存键列表显示，避免KV list操作 -->
+            <div style="margin-top: 15px; padding: 10px; background-color: #f5f7fa; border-radius: 4px;">
+              <el-text size="small" type="info">
+                <i class="el-icon-info-filled"></i>
+                {{ cacheStats.note || '统计基于索引系统，避免KV list操作限制' }}
+              </el-text>
             </div>
           </div>
 
@@ -918,18 +916,7 @@ onUnmounted(() => {
   margin: 0;
 }
 
-.cache-keys {
-  margin-top: 20px;
-}
-
-.cache-keys h4 {
-  margin-bottom: 10px;
-  color: #303133;
-}
-
-.cache-key-tag {
-  margin: 2px 4px 2px 0;
-}
+/* 🔥 V2.6: 移除cache-keys和cache-key-tag样式（已废弃） */
 
 .diagnostic-item {
   padding: 12px 0;
@@ -1127,10 +1114,6 @@ onUnmounted(() => {
     gap: 4px;
   }
   
-  /* 缓存键标签移动端优化 */
-  .cache-key-tag {
-    font-size: 11px;
-    margin: 1px 2px;
-  }
+  /* 🔥 V2.6: 移除cache-key-tag样式（已废弃） */
 }
 </style>
