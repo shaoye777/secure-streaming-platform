@@ -871,10 +871,30 @@ async function handleRequest(request, env, ctx) {
           }
         }
         
-        // 2. 如果索引为空，尝试降级方案（使用CHANNELS作为后备）
+        // 2. 如果索引为空，使用list扫描KV并自动重建索引
         if (channelIds.length === 0) {
-          console.warn('频道索引为空，使用CHANNELS后备方案');
-          channelIds = Object.keys(CHANNELS);
+          console.warn('频道索引为空，尝试使用list扫描并重建索引');
+          try {
+            const listResult = await env.YOYO_USER_DB.list({ prefix: 'channel:' });
+            channelIds = listResult.keys.map(key => key.name.replace('channel:', ''));
+            
+            // 自动重建索引
+            if (channelIds.length > 0) {
+              await env.YOYO_USER_DB.put('system:channel_index', JSON.stringify({
+                channelIds,
+                lastUpdated: new Date().toISOString(),
+                totalChannels: channelIds.length
+              }));
+              console.log(`频道索引已自动重建，包含${channelIds.length}个频道`);
+            } else {
+              // 如果KV中也没有频道，使用CHANNELS作为最终后备
+              console.warn('KV中没有频道数据，使用CHANNELS作为最终后备');
+              channelIds = Object.keys(CHANNELS);
+            }
+          } catch (listError) {
+            console.error('List操作失败，使用CHANNELS作为后备:', listError);
+            channelIds = Object.keys(CHANNELS);
+          }
         }
         
         // 3. 根据索引读取每个频道的完整配置
