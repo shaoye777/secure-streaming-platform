@@ -486,11 +486,24 @@ const handleVideoRecovery = async () => {
     // 停止当前播放
     destroyHls()
     
+    // 🔥 关键修复：强制清除currentStream，打破Vue响应式缓存
+    streamsStore.currentStream = null
+    
     // 等待500ms确保清理完成
     await new Promise(resolve => setTimeout(resolve, 500))
     
-    // 重新播放
-    await streamsStore.playStream(streamId)
+    // 🔥 关键修复：使用forceReset参数重新播放
+    await streamsStore.playStream(streamId, true)
+    
+    // 🔥 关键修复：等待Vue响应式更新DOM
+    await nextTick()
+    await new Promise(resolve => setTimeout(resolve, 300))
+    
+    // 🔥 关键修复：手动强制重新初始化HLS（双保险）
+    if (streamsStore.currentStream?.hlsUrl) {
+      console.log('🎬 强制重新初始化HLS播放器')
+      initHls()
+    }
     
     console.log('✅ 视频自动恢复成功')
     

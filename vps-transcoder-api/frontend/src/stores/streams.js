@@ -29,10 +29,11 @@ export const useStreamsStore = defineStore('streams', () => {
     }
   }
 
-  const playStream = async (streamId) => {
+  const playStream = async (streamId, forceReset = false) => {
     try {
-      // 如果当前有正在播放的流，先停止它
-      if (currentStream.value && currentStream.value.channelId !== streamId) {
+      // 🔥 关键修复：支持强制重置参数
+      // 如果forceReset=true或切换到不同频道，执行完整重置流程
+      if (forceReset || (currentStream.value && currentStream.value.channelId !== streamId)) {
         // 🔥 关键修复：立即清除当前流状态，强制VideoPlayer重置
         currentStream.value = null
         
