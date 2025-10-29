@@ -3,13 +3,27 @@
  * 配合VPS上的SimpleStreamManager使用
  */
 
-const VPS_API_BASE = 'https://yoyo-vps.5202021.xyz';
-const VPS_API_KEY = '85da076ae24b028b3d1ea1884e6b13c5afe34488be0f8d39a05fbbf26d23e938';
+// 注意：不再硬编码API Key，而是从env参数传递
+let globalEnv = null;
+
+/**
+ * 设置全局env（用于访问环境变量）
+ */
+function setGlobalEnv(env) {
+  globalEnv = env;
+}
 
 /**
  * 调用VPS API的通用函数
  */
 async function callVpsApi(endpoint, method = 'GET', data = null) {
+  const VPS_API_BASE = globalEnv?.VPS_API_URL || 'https://yoyo-vps.5202021.xyz';
+  const VPS_API_KEY = globalEnv?.VPS_API_KEY;
+  
+  if (!VPS_API_KEY) {
+    throw new Error('VPS_API_KEY not configured');
+  }
+  
   const url = `${VPS_API_BASE}/api/simple-stream${endpoint}`;
   
   const options = {
@@ -44,6 +58,7 @@ async function callVpsApi(endpoint, method = 'GET', data = null) {
  * POST /api/play/:channelId
  */
 export async function handlePlayStream(request, env, channelId) {
+  setGlobalEnv(env);
   try {
     // 从请求中获取用户信息
     const body = await request.json().catch(() => ({}));
@@ -91,6 +106,7 @@ export async function handlePlayStream(request, env, channelId) {
  * POST /api/stop/:sessionId
  */
 export async function handleStopStream(request, env, sessionId) {
+  setGlobalEnv(env);
   try {
     // 调用VPS API停止观看
     const result = await callVpsApi('/stop-watching', 'POST', {
@@ -125,6 +141,7 @@ export async function handleStopStream(request, env, sessionId) {
  * POST /api/heartbeat/:sessionId
  */
 export async function handleHeartbeat(request, env, sessionId) {
+  setGlobalEnv(env);
   try {
     // 调用VPS API更新会话活动
     await callVpsApi('/heartbeat', 'POST', {
@@ -157,6 +174,7 @@ export async function handleHeartbeat(request, env, sessionId) {
  * GET /api/channel/:channelId/status
  */
 export async function handleChannelStatus(request, env, channelId) {
+  setGlobalEnv(env);
   try {
     const result = await callVpsApi(`/channel/${channelId}/status`);
     
@@ -186,6 +204,7 @@ export async function handleChannelStatus(request, env, channelId) {
  * GET /api/system/status
  */
 export async function handleSystemStatus(request, env) {
+  setGlobalEnv(env);
   try {
     const result = await callVpsApi('/system/status');
     
@@ -230,7 +249,11 @@ export async function handleSystemStatus(request, env) {
  * GET /hls/:channelId/:file
  */
 export async function handleHlsProxy(request, env, channelId, file) {
+  setGlobalEnv(env);
   try {
+    const VPS_API_BASE = globalEnv?.VPS_API_URL || 'https://yoyo-vps.5202021.xyz';
+    const VPS_API_KEY = globalEnv?.VPS_API_KEY;
+    
     const hlsUrl = `${VPS_API_BASE}/hls/${channelId}/${file}`;
     
     const response = await fetch(hlsUrl, {
