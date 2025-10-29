@@ -341,10 +341,33 @@ async function handleSave() {
     if (allSuccess) {
       console.log('✅ 所有配置保存成功');
       
-      // 🔧 保存成功，直接显示成功提示
+      // 🔧 保存成功后重新加载VPS调度器
+      try {
+        // 并行触发预加载和录制调度器重新加载
+        const reloadPromises = [];
+        
+        console.log('🔄 触发VPS调度器重新加载...');
+        reloadPromises.push(
+          axios.post('/api/simple-stream/preload/reload-schedule').catch(err => {
+            console.warn('预加载调度器重载失败:', err.message);
+          })
+        );
+        reloadPromises.push(
+          axios.post('/api/simple-stream/record/reload-schedule').catch(err => {
+            console.warn('录制调度器重载失败:', err.message);
+          })
+        );
+        
+        await Promise.all(reloadPromises);
+        console.log('✅ VPS调度器重新加载完成');
+      } catch (error) {
+        console.warn('调度器重载警告:', error.message);
+        // 不影响主流程，继续执行
+      }
+      
       // 注意：由于Cloudflare KV是最终一致性存储，配置可能需要几秒钟才能全球生效
       // 但API返回成功就表示数据已保存，列表会通过刷新自动获取最新状态
-      ElMessage.success('频道配置已保存');
+      ElMessage.success('频道配置已保存，调度器已更新');
       
       emit('saved');
       handleClose();
