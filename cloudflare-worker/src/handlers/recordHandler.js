@@ -46,14 +46,27 @@ async function getRecordConfig(env, channelId) {
 
 /**
  * 获取所有启用录制的频道配置（供VPS调度器调用）
+ * 🔥 V2.7: 改用频道索引，避免list()操作超限
  */
 async function getAllRecordConfigs(env) {
   try {
-    const listResult = await env.YOYO_USER_DB.list({ prefix: 'channel:' });
+    // 🔥 从频道索引获取所有频道ID列表
+    const channelIndexData = await env.YOYO_USER_DB.get('system:channel_index', { type: 'json' });
+    
+    if (!channelIndexData || !channelIndexData.channels || channelIndexData.channels.length === 0) {
+      console.warn('Channel index is empty or not found');
+      return {
+        status: 'success',
+        data: []
+      };
+    }
     
     const configs = [];
-    for (const key of listResult.keys) {
-      const channelData = await env.YOYO_USER_DB.get(key.name, { type: 'json' });
+    // 遍历索引中的所有频道
+    for (const channelId of channelIndexData.channels) {
+      const channelData = await env.YOYO_USER_DB.get(`channel:${channelId}`, { type: 'json' });
+      
+      // 检查频道是否启用录制
       if (channelData?.recordConfig?.enabled) {
         configs.push({
           channelId: channelData.id,
@@ -63,6 +76,8 @@ async function getAllRecordConfigs(env) {
         });
       }
     }
+    
+    console.log(`Found ${configs.length} channels with recording enabled`);
     
     return {
       status: 'success',
