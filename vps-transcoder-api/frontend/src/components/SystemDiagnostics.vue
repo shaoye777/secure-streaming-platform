@@ -230,7 +230,7 @@
     <!-- 流量统计 -->
     <el-row style="margin-top: 20px;" :gutter="20">
       <el-col :xs="24" :sm="24" :md="12" :lg="12">
-        <el-card shadow="never" style="height: 400px;">
+        <el-card shadow="never" style="height: 500px;">
           <template #header>
             <div class="card-header">
               <h3>流量统计</h3>
@@ -243,7 +243,7 @@
             </div>
           </template>
 
-          <div style="max-height: 320px; overflow-y: auto;">
+          <div style="max-height: 420px; overflow-y: auto;">
             <div v-if="trafficStats.summary">
               <el-descriptions :column="2" border size="small">
                 <el-descriptions-item label="总流量">
