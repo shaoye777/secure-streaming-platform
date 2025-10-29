@@ -504,8 +504,8 @@ export class ProxyHandler {
       // 合并VPS实时状态
       if (vpsStatus) {
         status = { ...status, ...vpsStatus, lastUpdate: new Date().toISOString() };
-        // 保存更新后的状态
-        await env.YOYO_USER_DB.put(this.PROXY_STATUS_KEY, JSON.stringify(status));
+        // 🔥 移除KV写入：代理状态是实时的，不需要持久化
+        // 之前每10秒轮询就写入1次KV，导致写入量暴增
       }
       
       return {
