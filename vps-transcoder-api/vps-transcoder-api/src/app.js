@@ -46,8 +46,8 @@ app.use(helmet({
     contentSecurityPolicy: false
 }));
 
-// 信任代理配置 - 在VPS直连环境下禁用，避免rate limiting安全警告
-app.set('trust proxy', false);
+// 信任代理配置 - 因为VPS前面有Cloudflare代理，必须启用
+app.set('trust proxy', true);
 
 // CORS配置
 app.use(cors({
