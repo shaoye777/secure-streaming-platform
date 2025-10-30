@@ -152,7 +152,26 @@ class RecordingRecoveryService {
             
             // 识别temp文件
             if (fileName.includes('_temp_')) {
-              logger.info(`📦 Found temp file: ${fileName}`);
+              // 🔥 关键修复：检查文件是否正在被录制
+              const stat = fs.statSync(filePath);
+              const fileAge = Date.now() - stat.mtimeMs;
+              const oneHour = 60 * 60 * 1000;
+              
+              // 🔒 安全检查1：只处理修改时间超过1小时的temp文件
+              if (fileAge < oneHour) {
+                logger.info(`⏭️ Skipping recent temp file (possibly recording): ${fileName} (age: ${Math.round(fileAge / 60000)}min)`);
+                continue;
+              }
+              
+              // 🔒 安全检查2：检查是否有活跃的录制进程在使用该频道
+              const isRecording = this.streamManager.activeStreams?.has(channel.id) && 
+                                  this.streamManager.activeStreams.get(channel.id)?.isRecording;
+              if (isRecording) {
+                logger.warn(`⚠️ Skipping temp file - channel is actively recording: ${fileName}`);
+                continue;
+              }
+              
+              logger.info(`📦 Found old temp file: ${fileName} (age: ${Math.round(fileAge / 60000)}min)`);
               files.push({ path: filePath, type: 'temp', channel });
             } else if (channel.recordConfig) {
               // 识别错误结束时间文件（仅当有录制配置时）
