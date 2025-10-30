@@ -611,21 +611,25 @@ const handlePreloadSaved = async () => {
 const handleConfigUpdated = (configData) => {
   console.log('🔥 收到配置更新事件:', configData)
   
-  // 直接更新本地 streams 中对应频道的配置
-  const stream = streamsStore.streams.find(s => s.id === configData.channelId)
-  if (stream) {
+  // 找到对应频道的索引
+  const streamIndex = streamsStore.streams.findIndex(s => s.id === configData.channelId)
+  if (streamIndex !== -1) {
     console.log('📝 更新前状态:', {
-      preloadConfig: stream.preloadConfig,
-      recordConfig: stream.recordConfig
+      preloadConfig: streamsStore.streams[streamIndex].preloadConfig,
+      recordConfig: streamsStore.streams[streamIndex].recordConfig
     })
     
-    // 🔧 直接更新配置，立即反映在列表中
-    stream.preloadConfig = { ...configData.preloadConfig }
-    stream.recordConfig = { ...configData.recordConfig }
+    // 🔧 直接替换配置对象，确保触发 Vue 响应式更新
+    // 使用数组索引赋值来触发 Pinia 的响应式
+    streamsStore.streams[streamIndex] = {
+      ...streamsStore.streams[streamIndex],
+      preloadConfig: configData.preloadConfig,
+      recordConfig: configData.recordConfig
+    }
     
     console.log('✅ 更新后状态:', {
-      preloadConfig: stream.preloadConfig,
-      recordConfig: stream.recordConfig
+      preloadConfig: streamsStore.streams[streamIndex].preloadConfig,
+      recordConfig: streamsStore.streams[streamIndex].recordConfig
     })
     
     ElMessage.success('列表状态已更新')
