@@ -227,16 +227,37 @@ class RecordingRecoveryService {
 
   async renameTempFile(file) {
     try {
-      const match = path.basename(file.path).match(/(.+)_(.+)_(\d{8})_temp_(\d{3})\.mp4$/);
-      if (!match) return;
+      // 匹配新格式：频道名_频道ID_日期_时间_temp_XXX.mp4
+      const match = path.basename(file.path).match(/(.+)_(.+)_(\d{8})_(\d{6})_temp_(\d{3})\.mp4$/);
+      if (!match) {
+        // 兼容旧格式：频道名_频道ID_日期_temp_XXX.mp4
+        const oldMatch = path.basename(file.path).match(/(.+)_(.+)_(\d{8})_temp_(\d{3})\.mp4$/);
+        if (!oldMatch) return;
+        
+        const [, channelName, channelId, date] = oldMatch;
+        const duration = await this.getVideoDuration(file.path);
+        const stat = fs.statSync(file.path);
+        const fileEndTime = new Date(stat.mtimeMs);
+        const fileStartTime = new Date(fileEndTime.getTime() - duration * 1000);
+        
+        const newFileName = `${channelName}_${channelId}_${date}_${this.formatTime(fileStartTime)}_to_${this.formatTime(fileEndTime)}.mp4`;
+        const newPath = path.join(path.dirname(file.path), newFileName);
+        
+        if (!fs.existsSync(newPath)) {
+          fs.renameSync(file.path, newPath);
+          logger.info('Temp file renamed (old format)', { from: path.basename(file.path), to: newFileName });
+        }
+        return;
+      }
       
-      const [, channelName, channelId, date] = match;
+      // 新格式处理：使用文件名中的开始时间
+      const [, channelName, channelId, date, startTime] = match;
       const duration = await this.getVideoDuration(file.path);
       const stat = fs.statSync(file.path);
       const fileEndTime = new Date(stat.mtimeMs);
-      const fileStartTime = new Date(fileEndTime.getTime() - duration * 1000);
       
-      const newFileName = `${channelName}_${channelId}_${date}_${this.formatTime(fileStartTime)}_to_${this.formatTime(fileEndTime)}.mp4`;
+      // 使用文件名中的开始时间（更准确）
+      const newFileName = `${channelName}_${channelId}_${date}_${startTime}_to_${this.formatTime(fileEndTime)}.mp4`;
       const newPath = path.join(path.dirname(file.path), newFileName);
       
       if (!fs.existsSync(newPath)) {

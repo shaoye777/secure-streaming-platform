@@ -1089,9 +1089,9 @@ class SimpleStreamManager {
     
     const basePath = recordConfig.storagePath || this.recordingBaseDir;
     
-    // 🆕 分段录制：使用临时文件名
+    // 🆕 分段录制：使用临时文件名（包含实际开始时间，避免文件名冲突）
     if (recordConfig.segmentEnabled) {
-      const filename = `${channelName}_${channelId}_${dateStr}_temp_%03d.mp4`;
+      const filename = `${channelName}_${channelId}_${dateStr}_${timeStr}_temp_%03d.mp4`;
       return path.join(basePath, channelId, dateStr, filename);
     }
     
@@ -1182,7 +1182,11 @@ class SimpleStreamManager {
       const basePath = recordConfig.storagePath || this.recordingBaseDir;
       const outputDir = path.join(basePath, channelId, dateStr);
       
-      const tempFile = `${recordConfig.channelName}_${channelId}_${dateStr}_temp_${String(segmentIndex).padStart(3, '0')}.mp4`;
+      // 计算session开始时间字符串（用于构造temp文件名）
+      const sessionStart = new Date(recordConfig.sessionStartTime + 8 * 60 * 60 * 1000);
+      const sessionStartTimeStr = `${String(sessionStart.getUTCHours()).padStart(2, '0')}${String(sessionStart.getUTCMinutes()).padStart(2, '0')}${String(sessionStart.getUTCSeconds()).padStart(2, '0')}`;
+      
+      const tempFile = `${recordConfig.channelName}_${channelId}_${dateStr}_${sessionStartTimeStr}_temp_${String(segmentIndex).padStart(3, '0')}.mp4`;
       const tempPath = path.join(outputDir, tempFile);
       
       // 检查文件是否存在
@@ -1192,7 +1196,6 @@ class SimpleStreamManager {
       }
       
       // 计算该segment的时间范围
-      const sessionStart = new Date(recordConfig.sessionStartTime + 8 * 60 * 60 * 1000);
       const segmentDurationMs = recordConfig.segmentDuration * 60 * 1000;
       
       const startTime = new Date(sessionStart.getTime() + segmentIndex * segmentDurationMs);
@@ -1272,20 +1275,43 @@ class SimpleStreamManager {
       for (const tempFile of tempFiles) {
         const tempPath = path.join(outputDir, tempFile);
         
-        // 提取segment索引
-        const match = tempFile.match(/_temp_(\d+)\.mp4$/);
-        if (!match) {
-          logger.warn('Invalid temp file name format', { tempFile });
-          continue;
+        // 提取segment索引和session开始时间
+        // 新格式：频道名_频道ID_日期_时间_temp_XXX.mp4
+        const newMatch = tempFile.match(/_(\d{6})_temp_(\d+)\.mp4$/);
+        let segmentIndex, sessionStartTimeStr;
+        
+        if (newMatch) {
+          // 新格式：从文件名提取session开始时间
+          sessionStartTimeStr = newMatch[1];
+          segmentIndex = parseInt(newMatch[2]);
+        } else {
+          // 兼容旧格式：频道名_频道ID_日期_temp_XXX.mp4
+          const oldMatch = tempFile.match(/_temp_(\d+)\.mp4$/);
+          if (!oldMatch) {
+            logger.warn('Invalid temp file name format', { tempFile });
+            continue;
+          }
+          segmentIndex = parseInt(oldMatch[1]);
+          // 旧格式使用recordConfig中的sessionStartTime
+          const sessionStart = new Date(recordConfig.sessionStartTime + 8 * 60 * 60 * 1000);
+          sessionStartTimeStr = `${String(sessionStart.getUTCHours()).padStart(2, '0')}${String(sessionStart.getUTCMinutes()).padStart(2, '0')}${String(sessionStart.getUTCSeconds()).padStart(2, '0')}`;
         }
         
-        const segmentIndex = parseInt(match[1]);
+        // 从session开始时间字符串计算该段的开始时间
+        const hours = parseInt(sessionStartTimeStr.substr(0, 2));
+        const minutes = parseInt(sessionStartTimeStr.substr(2, 2));
+        const seconds = parseInt(sessionStartTimeStr.substr(4, 2));
+        const sessionStartMs = (hours * 3600 + minutes * 60 + seconds) * 1000;
+        const segmentStartMs = sessionStartMs + segmentIndex * segmentDurationMs;
         
-        // 计算该段的开始和结束时间
-        const startTime = new Date(sessionStart.getTime() + segmentIndex * segmentDurationMs);
-        const endTime = beijingNow;  // 最后一段使用实际停止时间
+        // 计算开始时间
+        const startHours = Math.floor(segmentStartMs / 3600000) % 24;
+        const startMinutes = Math.floor((segmentStartMs % 3600000) / 60000);
+        const startSeconds = Math.floor((segmentStartMs % 60000) / 1000);
+        const startTimeStr = `${String(startHours).padStart(2, '0')}${String(startMinutes).padStart(2, '0')}${String(startSeconds).padStart(2, '0')}`;
         
-        const startTimeStr = `${String(startTime.getUTCHours()).padStart(2, '0')}${String(startTime.getUTCMinutes()).padStart(2, '0')}${String(startTime.getUTCSeconds()).padStart(2, '0')}`;
+        // 结束时间使用实际停止时间
+        const endTime = beijingNow;
         const endTimeStr = `${String(endTime.getUTCHours()).padStart(2, '0')}${String(endTime.getUTCMinutes()).padStart(2, '0')}${String(endTime.getUTCSeconds()).padStart(2, '0')}`;
         
         // 生成正式文件名
