@@ -15,7 +15,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
-const logger = require('../utils/logger')('RecordingRecoveryService');
+const logger = require('../utils/logger');
 
 class RecordingRecoveryService {
   constructor(streamManager, systemConfig = {}) {
