@@ -109,13 +109,23 @@ async function getAllRecordConfigs(env) {
  * 更新频道的录制配置
  */
 async function updateRecordConfig(env, ctx, channelId, data, username) {
+  console.log('🔧 [updateRecordConfig] Starting...', { channelId, data, username });
+  
   try {
     const channelKey = `channel:${channelId}`;
+    console.log('📖 [updateRecordConfig] Reading channel from KV:', channelKey);
     let channelData = await env.YOYO_USER_DB.get(channelKey, { type: 'json' });
     
     if (!channelData) {
+      console.error('❌ [updateRecordConfig] Channel not found:', channelKey);
       throw new Error('Channel not found');
     }
+    
+    console.log('✅ [updateRecordConfig] Channel found:', { 
+      id: channelData.id, 
+      name: channelData.name,
+      oldRecordConfig: channelData.recordConfig 
+    });
     
     // 更新recordConfig字段
     channelData.recordConfig = {
@@ -128,7 +138,15 @@ async function updateRecordConfig(env, ctx, channelId, data, username) {
       updatedBy: username
     };
     
+    console.log('💾 [updateRecordConfig] Writing to KV...', { 
+      key: channelKey, 
+      newRecordConfig: channelData.recordConfig,
+      dataSize: JSON.stringify(channelData).length 
+    });
+    
     await env.YOYO_USER_DB.put(channelKey, JSON.stringify(channelData));
+    
+    console.log('✅ [updateRecordConfig] KV write completed successfully');
     
     // 🔧 同步通知VPS重载调度，直接传递最新配置
     // ✅ 避免KV最终一致性问题：不让VPS重新读取KV，而是直接传递刚保存的配置
@@ -141,10 +159,11 @@ async function updateRecordConfig(env, ctx, channelId, data, username) {
         rtmpUrl: channelData.rtmpUrl,
         ...channelData.recordConfig
       };
+      console.log('📞 [updateRecordConfig] Notifying VPS...', { fullConfig });
       vpsNotifyResult = await notifyVpsReload(env, channelId, fullConfig);
-      console.log('✅ VPS录制调度通知成功', { channelId, result: vpsNotifyResult });
+      console.log('✅ [updateRecordConfig] VPS notification successful', { result: vpsNotifyResult });
     } catch (error) {
-      console.error('⚠️ VPS录制调度通知失败（配置已保存）', { 
+      console.error('⚠️ [updateRecordConfig] VPS notification failed (config saved)', { 
         channelId, 
         error: error.message,
         stack: error.stack
@@ -153,7 +172,7 @@ async function updateRecordConfig(env, ctx, channelId, data, username) {
       // 即使通知失败，配置也已保存，VPS定时重载会生效
     }
     
-    return {
+    const response = {
       status: 'success',
       message: 'Record config updated successfully',
       data: channelData.recordConfig,
@@ -162,8 +181,16 @@ async function updateRecordConfig(env, ctx, channelId, data, username) {
         vpsError: vpsNotifyResult?.error || null
       }
     };
+    
+    console.log('🎉 [updateRecordConfig] Completed successfully', response);
+    return response;
   } catch (error) {
-    console.error('Failed to update record config:', error);
+    console.error('❌ [updateRecordConfig] Failed:', { 
+      error: error.message, 
+      stack: error.stack,
+      channelId,
+      data
+    });
     return {
       status: 'error',
       message: error.message
