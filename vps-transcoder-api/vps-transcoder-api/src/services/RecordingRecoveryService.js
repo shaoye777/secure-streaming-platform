@@ -155,11 +155,11 @@ class RecordingRecoveryService {
               // 🔥 关键修复：检查文件是否正在被录制
               const stat = fs.statSync(filePath);
               const fileAge = Date.now() - stat.mtimeMs;
-              const fiveMinutes = 5 * 60 * 1000;  // 改为5分钟保护期
+              const protectionPeriod = 30 * 1000;  // 30秒保护期（录制分片60分钟，30秒足够判断）
               
-              // 🔒 安全检查1：只处理修改时间超过5分钟的temp文件
-              // 5分钟足够判断文件是否还在写入，同时能及时修复已停止的录制
-              if (fileAge < fiveMinutes) {
+              // 🔒 安全检查1：只处理修改时间超过30秒的temp文件
+              // 录制时FFmpeg每秒都在写入，30秒足够判断文件是否停止增长
+              if (fileAge < protectionPeriod) {
                 logger.info(`⏭️ Skipping recent temp file (possibly recording): ${fileName} (age: ${Math.round(fileAge / 1000)}s)`);
                 continue;
               }
