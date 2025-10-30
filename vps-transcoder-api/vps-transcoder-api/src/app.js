@@ -121,8 +121,10 @@ try {
 }
 
 // 使用新的简化流管理API（向后兼容）
+let streamManager = null;
 try {
-  const { router: simpleStreamRoutes, preloadScheduler } = require('./routes/simple-stream');
+  const { router: simpleStreamRoutes, preloadScheduler, streamManager: sm } = require('./routes/simple-stream');
+  streamManager = sm;
   app.use('/api/simple-stream', simpleStreamRoutes);
   
   // 🆕 将workdayChecker注册到app，供其他路由访问
@@ -190,6 +192,43 @@ try {
   logger.info('✅ 视频清理API端点已注册');
 } catch (error) {
   logger.error('视频清理服务加载失败:', error.message);
+}
+
+// 🆕 录制文件恢复服务
+try {
+  const RecordingRecoveryService = require('./services/RecordingRecoveryService');
+  const axios = require('axios');
+  
+  if (streamManager) {
+    // 获取系统配置
+    axios.get('http://localhost:3000/api/admin/cleanup/config', {
+      headers: {
+        'x-api-key': process.env.VPS_API_KEY
+      }
+    })
+      .then(response => {
+        const systemConfig = response.data.data || {};
+        
+        // 初始化录制恢复服务（异步执行，传入系统配置）
+        const recoveryService = new RecordingRecoveryService(streamManager, systemConfig);
+        recoveryService.startup();
+        
+        logger.info('✅ 录制文件恢复服务已初始化', {
+          scanRecentHours: systemConfig.recoveryScanHours || 48
+        });
+      })
+      .catch(error => {
+        // 如果无法获取配置，使用默认配置
+        logger.warn('无法获取系统配置，使用默认配置', { error: error.message });
+        const recoveryService = new RecordingRecoveryService(streamManager, {});
+        recoveryService.startup();
+        logger.info('✅ 录制文件恢复服务已初始化（默认配置）');
+      });
+  } else {
+    logger.warn('StreamManager未初始化，跳过录制文件恢复服务');
+  }
+} catch (error) {
+  logger.error('录制文件恢复服务加载失败:', error.message);
 }
 
 // 代理管理API路由

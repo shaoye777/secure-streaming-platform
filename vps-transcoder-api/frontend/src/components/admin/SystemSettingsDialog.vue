@@ -60,6 +60,26 @@
         </div>
       </el-form-item>
 
+      <el-divider content-position="left">文件恢复配置</el-divider>
+      
+      <el-form-item label="恢复扫描时长">
+        <el-input-number 
+          v-model="form.recoveryScanHours" 
+          :min="12" 
+          :max="168"
+          style="width: 150px"
+        />
+        <span style="margin-left: 10px;">小时</span>
+        <div style="margin-top: 5px; color: #909399; font-size: 12px;">
+          启动时扫描并修复最近 {{ form.recoveryScanHours }} 小时内的录制文件（范围：12-168小时）
+        </div>
+        <div style="margin-top: 10px;">
+          <el-button size="small" @click="form.recoveryScanHours = 24">24小时</el-button>
+          <el-button size="small" @click="form.recoveryScanHours = 48">48小时</el-button>
+          <el-button size="small" @click="form.recoveryScanHours = 72">72小时</el-button>
+        </div>
+      </el-form-item>
+
       <el-divider />
 
       <el-form-item>
@@ -107,7 +127,8 @@ const form = reactive({
   enabled: true,
   retentionDays: 2,
   segmentEnabled: false,  // 🆕 录制分段开关
-  segmentDuration: 60     // 🆕 分段时长（分钟）
+  segmentDuration: 60,     // 🆕 分段时长（分钟）
+  recoveryScanHours: 48   // 🆕 恢复扫描时长（小时）
 })
 
 // 监听外部变化
@@ -147,7 +168,8 @@ const handleSave = async () => {
       enabled: form.enabled,
       retentionDays: form.retentionDays,
       segmentEnabled: form.segmentEnabled,    // 🆕
-      segmentDuration: form.segmentDuration   // 🆕
+      segmentDuration: form.segmentDuration,   // 🆕
+      recoveryScanHours: form.recoveryScanHours  // 🆕
     })
     
     if (response.data && response.data.status === 'success') {
