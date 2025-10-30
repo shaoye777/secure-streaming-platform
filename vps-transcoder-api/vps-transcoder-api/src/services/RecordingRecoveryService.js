@@ -155,11 +155,12 @@ class RecordingRecoveryService {
               // 🔥 关键修复：检查文件是否正在被录制
               const stat = fs.statSync(filePath);
               const fileAge = Date.now() - stat.mtimeMs;
-              const oneHour = 60 * 60 * 1000;
+              const fiveMinutes = 5 * 60 * 1000;  // 改为5分钟保护期
               
-              // 🔒 安全检查1：只处理修改时间超过1小时的temp文件
-              if (fileAge < oneHour) {
-                logger.info(`⏭️ Skipping recent temp file (possibly recording): ${fileName} (age: ${Math.round(fileAge / 60000)}min)`);
+              // 🔒 安全检查1：只处理修改时间超过5分钟的temp文件
+              // 5分钟足够判断文件是否还在写入，同时能及时修复已停止的录制
+              if (fileAge < fiveMinutes) {
+                logger.info(`⏭️ Skipping recent temp file (possibly recording): ${fileName} (age: ${Math.round(fileAge / 1000)}s)`);
                 continue;
               }
               

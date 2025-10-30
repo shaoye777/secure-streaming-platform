@@ -149,6 +149,7 @@ try {
 
 // 🆕 视频清理服务
 let videoCleanupScheduler = null;
+let recoveryService = null;  // 🆕 录制文件恢复服务全局引用
 try {
   const VideoCleanupScheduler = require('./services/VideoCleanupScheduler');
   videoCleanupScheduler = new VideoCleanupScheduler();
@@ -193,6 +194,44 @@ try {
 } catch (error) {
   logger.error('视频清理服务加载失败:', error.message);
 }
+
+// 🆕 录制文件恢复手动触发API端点
+app.post('/api/admin/recovery/execute', async (req, res) => {
+  try {
+    // API Key验证
+    const apiKey = req.headers['x-api-key'];
+    if (!apiKey || apiKey !== process.env.VPS_API_KEY) {
+      return res.status(401).json({
+        status: 'error',
+        message: 'Unauthorized'
+      });
+    }
+    
+    if (!recoveryService) {
+      return res.status(503).json({
+        status: 'error',
+        message: 'Recovery service not initialized'
+      });
+    }
+    
+    // 手动触发恢复
+    logger.info('🔧 手动触发录制文件恢复...');
+    await recoveryService.runRecovery();
+    
+    res.json({
+      status: 'success',
+      message: 'Recovery completed',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error('手动恢复执行失败:', error);
+    res.status(500).json({
+      status: 'error',
+      message: error.message
+    });
+  }
+});
+logger.info('✅ 录制文件恢复API端点已注册');
 
 // 🆕 录制文件恢复服务 - 在app启动后初始化
 let RecordingRecoveryService = null;
@@ -323,7 +362,8 @@ if (require.main === module) {
               recoveryScanHours: parseInt(process.env.RECOVERY_SCAN_HOURS) || 48
             };
             
-            const recoveryService = new RecordingRecoveryService(streamManager, systemConfig);
+            // 🔥 保存到全局变量，供手动触发API使用
+            recoveryService = new RecordingRecoveryService(streamManager, systemConfig);
             recoveryService.startup();
             
             logger.info('✅ 录制文件恢复服务已启动', {
