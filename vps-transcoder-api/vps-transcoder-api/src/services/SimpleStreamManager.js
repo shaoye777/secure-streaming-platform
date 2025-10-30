@@ -828,11 +828,12 @@ class SimpleStreamManager {
         const hasViewers = this.channelHeartbeats.has(channelId);
         const isPreload = this.preloadChannels.has(channelId);
         
-        // 🆕 录制结束前重命名分段文件
+        // 🆕 录制结束前重命名文件
         if (recordConfig && recordConfig.segmentEnabled) {
-          await this.renameSegmentFiles(channelId, recordConfig);
+          // 分段模式：只重命名最后一个分段（其他已在录制过程中重命名）
+          await this.renameFinalSegment(channelId, recordConfig);
         } else if (oldRecordingPath) {
-          // 单文件模式，重命名结束时间
+          // 单文件模式：重命名为实际结束时间
           await this.renameRecordingWithActualEndTime(oldRecordingPath);
         }
         
@@ -1016,6 +1017,38 @@ class SimpleStreamManager {
       if (output.includes('error') || output.includes('failed')) {
         logger.error('FFmpeg error detected', { channelId, output: output.trim() });
       }
+      
+      // 🆕 分段模式：监听segment切换，实时重命名已完成的分段
+      if (recordConfig && recordConfig.segmentEnabled) {
+        // 匹配FFmpeg输出: Opening 'xxx_temp_001.mp4' for writing
+        const match = output.match(/Opening '.*_temp_(\d+)\.mp4' for writing/);
+        if (match) {
+          const currentIndex = parseInt(match[1]);
+          
+          // 当检测到新segment开始时，说明上一个segment已完成
+          if (currentIndex > 0) {
+            const completedIndex = currentIndex - 1;
+            
+            logger.info('Segment switch detected, scheduling rename', { 
+              channelId, 
+              completedIndex,
+              currentIndex
+            });
+            
+            // 等待2秒后重命名（确保FFmpeg完成文件写入）
+            setTimeout(() => {
+              this.renameCompletedSegment(channelId, completedIndex, recordConfig)
+                .catch(err => {
+                  logger.error('Failed to rename completed segment', {
+                    channelId,
+                    completedIndex,
+                    error: err.message
+                  });
+                });
+            }, 2000);
+          }
+        }
+      }
     });
 
     // 等待流准备就绪
@@ -1134,11 +1167,75 @@ class SimpleStreamManager {
   }
 
   /**
-   * 重命名分段文件
+   * 重命名单个已完成的分段文件（录制过程中调用）
+   * @param {string} channelId - 频道ID
+   * @param {number} segmentIndex - 分段索引
+   * @param {Object} recordConfig - 录制配置
+   */
+  async renameCompletedSegment(channelId, segmentIndex, recordConfig) {
+    try {
+      const beijingNow = new Date(Date.now() + 8 * 60 * 60 * 1000);
+      const dateStr = `${beijingNow.getUTCFullYear()}${String(beijingNow.getUTCMonth() + 1).padStart(2, '0')}${String(beijingNow.getUTCDate()).padStart(2, '0')}`;
+      
+      const basePath = recordConfig.storagePath || this.recordingBaseDir;
+      const outputDir = path.join(basePath, channelId, dateStr);
+      
+      const tempFile = `${recordConfig.channelName}_${channelId}_${dateStr}_temp_${String(segmentIndex).padStart(3, '0')}.mp4`;
+      const tempPath = path.join(outputDir, tempFile);
+      
+      // 检查文件是否存在
+      if (!fs.existsSync(tempPath)) {
+        logger.warn('Segment file not found for rename', { channelId, tempPath });
+        return;
+      }
+      
+      // 计算该segment的时间范围
+      const sessionStart = new Date(recordConfig.sessionStartTime + 8 * 60 * 60 * 1000);
+      const segmentDurationMs = recordConfig.segmentDuration * 60 * 1000;
+      
+      const startTime = new Date(sessionStart.getTime() + segmentIndex * segmentDurationMs);
+      const endTime = new Date(startTime.getTime() + segmentDurationMs);
+      
+      const startTimeStr = `${String(startTime.getUTCHours()).padStart(2, '0')}${String(startTime.getUTCMinutes()).padStart(2, '0')}${String(startTime.getUTCSeconds()).padStart(2, '0')}`;
+      const endTimeStr = `${String(endTime.getUTCHours()).padStart(2, '0')}${String(endTime.getUTCMinutes()).padStart(2, '0')}${String(endTime.getUTCSeconds()).padStart(2, '0')}`;
+      
+      // 生成正式文件名
+      const finalFilename = `${recordConfig.channelName}_${channelId}_${dateStr}_${startTimeStr}_to_${endTimeStr}.mp4`;
+      const finalPath = path.join(outputDir, finalFilename);
+      
+      // 检查是否已重命名（避免重复）
+      if (fs.existsSync(finalPath)) {
+        logger.info('Segment already renamed, skipping', { channelId, finalFilename });
+        return;
+      }
+      
+      // 重命名
+      fs.renameSync(tempPath, finalPath);
+      
+      const fileSize = fs.statSync(finalPath).size;
+      logger.info('Segment renamed after 2s delay', { 
+        channelId,
+        segmentIndex,
+        from: tempFile,
+        to: finalFilename,
+        size: `${(fileSize / 1024 / 1024).toFixed(2)}MB`
+      });
+    } catch (error) {
+      logger.error('Failed to rename completed segment', {
+        channelId,
+        segmentIndex,
+        error: error.message,
+        stack: error.stack
+      });
+    }
+  }
+
+  /**
+   * 重命名最后一个分段文件（停止录制时调用）
    * @param {string} channelId - 频道ID
    * @param {Object} recordConfig - 录制配置
    */
-  async renameSegmentFiles(channelId, recordConfig) {
+  async renameFinalSegment(channelId, recordConfig) {
     try {
       // 等待2秒确保FFmpeg完成文件写入
       await new Promise(resolve => setTimeout(resolve, 2000));
@@ -1150,34 +1247,41 @@ class SimpleStreamManager {
       const outputDir = path.join(basePath, channelId, dateStr);
       
       if (!fs.existsSync(outputDir)) {
-        logger.warn('Output directory not found', { outputDir });
+        logger.warn('Output directory not found', { channelId, outputDir });
         return;
       }
       
-      // 查找所有临时文件
+      // 查找所有临时文件（只应该剩下最后一个）
       const tempFiles = fs.readdirSync(outputDir)
         .filter(f => f.includes('_temp_') && f.endsWith('.mp4'))
         .sort();
       
       if (tempFiles.length === 0) {
-        logger.warn('No temp files found for renaming', { channelId, outputDir });
+        logger.info('No temp files found (all segments already renamed)', { channelId });
         return;
       }
       
-      logger.info(`Found ${tempFiles.length} temp files to rename`, { channelId });
+      logger.info(`Found ${tempFiles.length} temp file(s) to rename as final segment`, { channelId, tempFiles });
       
       const sessionStart = new Date(recordConfig.sessionStartTime + 8 * 60 * 60 * 1000);
-      const segmentDurationMs = (recordConfig.segmentDuration || 60) * 60 * 1000;
+      const segmentDurationMs = recordConfig.segmentDuration * 60 * 1000;
       
-      for (let i = 0; i < tempFiles.length; i++) {
-        const tempFile = tempFiles[i];
+      // 重命名所有剩余的临时文件（通常只有最后一个）
+      for (const tempFile of tempFiles) {
         const tempPath = path.join(outputDir, tempFile);
         
-        // 计算每段的开始和结束时间
-        const startTime = new Date(sessionStart.getTime() + i * segmentDurationMs);
-        const endTime = (i === tempFiles.length - 1) 
-          ? beijingNow  // 最后一段使用当前时间
-          : new Date(startTime.getTime() + segmentDurationMs);
+        // 提取segment索引
+        const match = tempFile.match(/_temp_(\d+)\.mp4$/);
+        if (!match) {
+          logger.warn('Invalid temp file name format', { tempFile });
+          continue;
+        }
+        
+        const segmentIndex = parseInt(match[1]);
+        
+        // 计算该段的开始和结束时间
+        const startTime = new Date(sessionStart.getTime() + segmentIndex * segmentDurationMs);
+        const endTime = beijingNow;  // 最后一段使用实际停止时间
         
         const startTimeStr = `${String(startTime.getUTCHours()).padStart(2, '0')}${String(startTime.getUTCMinutes()).padStart(2, '0')}${String(startTime.getUTCSeconds()).padStart(2, '0')}`;
         const endTimeStr = `${String(endTime.getUTCHours()).padStart(2, '0')}${String(endTime.getUTCMinutes()).padStart(2, '0')}${String(endTime.getUTCSeconds()).padStart(2, '0')}`;
@@ -1188,17 +1292,23 @@ class SimpleStreamManager {
         
         // 重命名
         fs.renameSync(tempPath, finalPath);
-        logger.info(`Renamed segment: ${tempFile} → ${finalFilename}`);
+        
+        const fileSize = fs.statSync(finalPath).size;
+        logger.info('Final segment renamed', { 
+          channelId,
+          segmentIndex,
+          from: tempFile,
+          to: finalFilename,
+          size: `${(fileSize / 1024 / 1024).toFixed(2)}MB`
+        });
       }
       
-      logger.info('All segment files renamed successfully', { 
-        channelId, 
-        totalFiles: tempFiles.length 
-      });
+      logger.info('All final segments renamed successfully', { channelId });
     } catch (error) {
-      logger.error('Failed to rename segment files', {
+      logger.error('Failed to rename final segment', {
         channelId,
-        error: error.message
+        error: error.message,
+        stack: error.stack
       });
     }
   }
