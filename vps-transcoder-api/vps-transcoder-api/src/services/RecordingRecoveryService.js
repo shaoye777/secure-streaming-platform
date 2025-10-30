@@ -26,11 +26,14 @@ class RecordingRecoveryService {
       delayStart: 5000,
       // 从系统配置读取扫描时长，默认48小时，范围12-168小时
       scanRecentHours: systemConfig.recoveryScanHours || 48,
-      timeoutPerFile: 300000
+      timeoutPerFile: 300000,
+      // 录制目录根路径（从环境变量或默认值）
+      recordingsPath: process.env.RECORDINGS_PATH || '/srv/filebrowser/yoyo-k'
     };
     
     logger.info('RecordingRecoveryService initialized', {
-      scanRecentHours: this.config.scanRecentHours
+      scanRecentHours: this.config.scanRecentHours,
+      recordingsPath: this.config.recordingsPath
     });
   }
 
@@ -135,11 +138,10 @@ class RecordingRecoveryService {
             // 识别temp文件
             if (fileName.includes('_temp_')) {
               files.push({ path: filePath, type: 'temp', channel });
-            } else {
-              // 识别错误结束时间文件
+            } else if (channel.recordConfig) {
+              // 识别错误结束时间文件（仅当有录制配置时）
               const match = fileName.match(/_(\d{6})_to_(\d{6})\.mp4$/);
-              if (match && channel.recordConfig && 
-                  this.isPresetEndTime(match[2], channel.recordConfig.endTime)) {
+              if (match && this.isPresetEndTime(match[2], channel.recordConfig.endTime)) {
                 if (await this.needsEndTimeCheck(filePath)) {
                   files.push({ path: filePath, type: 'wrongEndTime', channel });
                 }
@@ -157,14 +159,34 @@ class RecordingRecoveryService {
 
   async getRecordingChannels() {
     const channels = [];
+    
+    // 方式1：从streamManager获取（如果有配置）
     for (const [channelId, config] of this.streamManager.recordingConfigs.entries()) {
       channels.push({
         id: channelId,
         name: config.channelName,
-        storagePath: config.storagePath || '/var/www/recordings',
+        storagePath: config.storagePath || this.config.recordingsPath,
         recordConfig: config
       });
     }
+    
+    // 方式2：直接扫描录制目录（兜底方案）
+    if (channels.length === 0 && fs.existsSync(this.config.recordingsPath)) {
+      const dirs = fs.readdirSync(this.config.recordingsPath)
+        .filter(d => d.startsWith('stream_'));
+      
+      for (const channelId of dirs) {
+        channels.push({
+          id: channelId,
+          name: channelId,
+          storagePath: this.config.recordingsPath,
+          recordConfig: null  // 无录制配置，跳过结束时间检查
+        });
+      }
+      
+      logger.info(`Found ${dirs.length} channels from directory scan`);
+    }
+    
     return channels;
   }
 
