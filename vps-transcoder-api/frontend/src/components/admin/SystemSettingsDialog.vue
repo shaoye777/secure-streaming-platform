@@ -45,13 +45,13 @@
       <el-form-item label="分段时长" v-if="form.segmentEnabled">
         <el-input-number 
           v-model="form.segmentDuration" 
-          :min="10" 
+          :min="3" 
           :max="240"
           style="width: 150px"
         />
         <span style="margin-left: 10px;">分钟</span>
         <div style="margin-top: 5px; color: #909399; font-size: 12px;">
-          录制时长达到设置值时自动切换到新文件（范围：10-240分钟）
+          录制时长达到设置值时自动切换到新文件（范围：3-240分钟）
         </div>
         <div style="margin-top: 10px;">
           <el-button size="small" @click="form.segmentDuration = 30">30分钟</el-button>
