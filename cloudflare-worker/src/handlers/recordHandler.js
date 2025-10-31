@@ -127,8 +127,16 @@ async function updateRecordConfig(env, ctx, channelId, data, username) {
       oldRecordConfig: channelData.recordConfig 
     });
     
-    // 更新recordConfig字段
-    channelData.recordConfig = {
+    // 🔧 重新读取最新数据，避免并发写入冲突
+    console.log('🔄 [updateRecordConfig] Re-reading latest data to avoid race condition...');
+    const latestChannelData = await env.YOYO_USER_DB.get(channelKey, { type: 'json' });
+    
+    if (!latestChannelData) {
+      throw new Error('Channel disappeared during update');
+    }
+    
+    // 更新recordConfig字段（使用最新数据）
+    latestChannelData.recordConfig = {
       enabled: data.enabled === true,
       startTime: data.startTime,
       endTime: data.endTime,
@@ -140,11 +148,14 @@ async function updateRecordConfig(env, ctx, channelId, data, username) {
     
     console.log('💾 [updateRecordConfig] Writing to KV...', { 
       key: channelKey, 
-      newRecordConfig: channelData.recordConfig,
-      dataSize: JSON.stringify(channelData).length 
+      newRecordConfig: latestChannelData.recordConfig,
+      dataSize: JSON.stringify(latestChannelData).length 
     });
     
-    await env.YOYO_USER_DB.put(channelKey, JSON.stringify(channelData));
+    await env.YOYO_USER_DB.put(channelKey, JSON.stringify(latestChannelData));
+    
+    // 更新返回数据
+    channelData = latestChannelData;
     
     console.log('✅ [updateRecordConfig] KV write completed successfully');
     

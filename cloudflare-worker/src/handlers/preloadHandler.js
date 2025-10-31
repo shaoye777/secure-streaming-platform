@@ -155,6 +155,17 @@ async function updatePreloadConfig(env, channelId, data, username) {
       };
     }
     
+    // 🔧 重新读取最新数据，避免并发写入冲突
+    console.log('🔄 [updatePreloadConfig] Re-reading latest data to avoid race condition...');
+    try {
+      const latestData = await env.YOYO_USER_DB.get(channelKey);
+      if (latestData) {
+        channelData = JSON.parse(latestData);
+      }
+    } catch (error) {
+      console.error('重新读取失败:', error);
+    }
+    
     // 🆕 构建预加载配置
     const preloadConfig = {
       enabled: enabled === true,
