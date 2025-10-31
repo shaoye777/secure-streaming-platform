@@ -552,12 +552,25 @@ class RecordingRecoveryService {
     const tempPath = filePath + '.repair.mp4';
     
     return new Promise((resolve, reject) => {
-      // 🔥 修复：保持 fragmented MP4 格式，避免破坏分段文件结构
-      // fragmented MP4 使用 empty_moov + moof，不能用 faststart
+      // 🔥 关键修复：对于已录制完成的损坏文件，需要重新编码修复
+      // 
+      // 原因分析：
+      // 1. VPS重启导致的temp文件可能严重损坏（EOF不完整）
+      // 2. `-c copy` 只重新封装容器，不修复损坏的视频流
+      // 3. Fragmented MP4 要求严格结构，损坏流无法正确分片
+      // 4. 结果：只能播放开头的完整moof（通常2秒）
+      //
+      // 解决方案：
+      // - 使用 libx264 重新编码（修复损坏帧）
+      // - 使用 faststart（标准MP4，已录制完成不需要流式写入）
+      // - preset ultrafast（速度优先，质量已由原始编码决定）
       const ffmpeg = spawn('ffmpeg', [
         '-i', filePath,
-        '-c', 'copy',
-        '-movflags', '+frag_keyframe+empty_moov+default_base_moof',  // 保持 fragmented MP4 格式
+        '-c:v', 'libx264',     // 重新编码修复损坏帧
+        '-preset', 'ultrafast', // 快速编码
+        '-crf', '23',           // 质量控制
+        '-an',                  // 无音频
+        '-movflags', 'faststart', // 标准MP4格式（元数据前置）
         '-y',
         tempPath
       ]);
@@ -570,7 +583,7 @@ class RecordingRecoveryService {
       ffmpeg.on('close', (code) => {
         if (code === 0 && fs.existsSync(tempPath)) {
           fs.renameSync(tempPath, filePath);
-          logger.info('✅ File format repaired (fragmented MP4)', { filePath });
+          logger.info('✅ File format repaired (re-encoded to standard MP4)', { filePath });
           resolve();
         } else {
           if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
