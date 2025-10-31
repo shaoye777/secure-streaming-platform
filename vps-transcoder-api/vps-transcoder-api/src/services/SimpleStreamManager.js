@@ -945,29 +945,18 @@ class SimpleStreamManager {
     
     // 🆕 根据配置决定录制方式
     if (recordConfig && recordConfig.segmentEnabled) {
-      // 分段录制
-      // 🔥 关键修复：分段录制必须使用标准MP4格式
-      // 
-      // 原因分析：
-      // 1. 分段录制时，每个分段都是**独立完成的文件**（不是正在录制）
-      // 2. Fragmented MP4设计用于流式写入（正在录制的文件）
-      // 3. 某些Web播放器只播放Fragmented MP4的第一个moof片段（2秒）
-      // 4. 结果：30MB完整文件只能播放2秒
-      //
-      // 解决方案：
-      // - 使用标准MP4格式（faststart）
-      // - 所有播放器支持完整播放
+      // 分段录制 - 使用fragmented MP4防止分段文件损坏
       const segmentSeconds = (recordConfig.segmentDuration || 60) * 60;
       ffmpegArgs.push(
         '-f', 'segment',
         '-segment_time', segmentSeconds.toString(),
         '-segment_format', 'mp4',
-        '-segment_format_options', 'movflags=faststart',  // 🔥 使用标准MP4
+        '-segment_format_options', 'movflags=+frag_keyframe+empty_moov+default_base_moof',
         '-reset_timestamps', '1',
         '-y',
         recordingPath
       );
-      logger.info('Using segment recording with standard MP4 (faststart)', { 
+      logger.info('Using segment recording with fragmented MP4', { 
         segmentDuration: recordConfig.segmentDuration,
         segmentSeconds 
       });
