@@ -1214,11 +1214,21 @@ class SimpleStreamManager {
         return;
       }
       
-      // 重命名
-      fs.renameSync(tempPath, finalPath);
+      // 🔥 关键修复：segment完成后转换为标准MP4
+      // 
+      // 问题根因：
+      // - 录制时使用Fragmented MP4防止崩溃损坏 ✅
+      // - 但segment muxer关闭Fragmented MP4时存在BUG
+      // - 导致完成的segment文件只能播放第一个fragment（2秒）
+      //
+      // 解决方案：
+      // - 保留Fragmented MP4用于防崩溃（录制过程中）
+      // - segment完成后，自动转换为标准MP4（修复播放问题）
+      // - 使用 -c copy 避免重新编码（速度快，无质量损失）
+      await this.convertSegmentToStandardMp4(tempPath, finalPath);
       
       const fileSize = fs.statSync(finalPath).size;
-      logger.info('Segment renamed after 2s delay', { 
+      logger.info('Segment converted and renamed', { 
         channelId,
         segmentIndex,
         from: tempFile,
@@ -1233,6 +1243,72 @@ class SimpleStreamManager {
         stack: error.stack
       });
     }
+  }
+
+  /**
+   * 将Fragmented MP4分段文件转换为标准MP4
+   * @param {string} inputPath - 输入文件路径（Fragmented MP4）
+   * @param {string} outputPath - 输出文件路径（标准MP4）
+   */
+  async convertSegmentToStandardMp4(inputPath, outputPath) {
+    return new Promise((resolve, reject) => {
+      const ffmpegProcess = spawn(this.ffmpegPath, [
+        '-i', inputPath,
+        '-c', 'copy',              // 不重新编码，只重新封装
+        '-movflags', 'faststart',  // 转换为标准MP4（moov前置）
+        '-y',
+        outputPath
+      ]);
+
+      let stderr = '';
+      ffmpegProcess.stderr.on('data', (data) => {
+        stderr += data.toString();
+      });
+
+      ffmpegProcess.on('close', (code) => {
+        if (code === 0 && fs.existsSync(outputPath)) {
+          // 转换成功，删除临时文件
+          fs.unlinkSync(inputPath);
+          logger.info('✅ Segment converted to standard MP4', { 
+            from: path.basename(inputPath),
+            to: path.basename(outputPath)
+          });
+          resolve();
+        } else {
+          // 转换失败，保留原文件，至少可以部分播放
+          logger.error('❌ Segment conversion failed, keeping original file', {
+            inputPath,
+            code,
+            stderr: stderr.slice(-200)
+          });
+          // 降级方案：直接重命名
+          if (fs.existsSync(inputPath)) {
+            fs.renameSync(inputPath, outputPath);
+          }
+          resolve(); // 不抛出错误，继续运行
+        }
+      });
+
+      ffmpegProcess.on('error', (error) => {
+        logger.error('FFmpeg process error during conversion', { error: error.message });
+        // 降级方案：直接重命名
+        if (fs.existsSync(inputPath) && !fs.existsSync(outputPath)) {
+          fs.renameSync(inputPath, outputPath);
+        }
+        resolve();
+      });
+
+      // 60秒超时
+      setTimeout(() => {
+        ffmpegProcess.kill('SIGTERM');
+        logger.error('Segment conversion timeout, using direct rename', { inputPath });
+        // 降级方案：直接重命名
+        if (fs.existsSync(inputPath) && !fs.existsSync(outputPath)) {
+          fs.renameSync(inputPath, outputPath);
+        }
+        resolve();
+      }, 60000);
+    });
   }
 
   /**
@@ -1318,11 +1394,11 @@ class SimpleStreamManager {
         const finalFilename = `${recordConfig.channelName}_${channelId}_${dateStr}_${startTimeStr}_to_${endTimeStr}.mp4`;
         const finalPath = path.join(outputDir, finalFilename);
         
-        // 重命名
-        fs.renameSync(tempPath, finalPath);
+        // 🔥 关键修复：转换为标准MP4（与中间分段相同的处理）
+        await this.convertSegmentToStandardMp4(tempPath, finalPath);
         
         const fileSize = fs.statSync(finalPath).size;
-        logger.info('Final segment renamed', { 
+        logger.info('Final segment converted and renamed', { 
           channelId,
           segmentIndex,
           from: tempFile,
