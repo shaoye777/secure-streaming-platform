@@ -454,8 +454,10 @@ class RecordingRecoveryService {
         const newPath = path.join(path.dirname(file.path), newFileName);
         
         if (!fs.existsSync(newPath)) {
-          fs.renameSync(file.path, newPath);
-          logger.info('✅ Temp file renamed (old format)', { from: path.basename(file.path), to: newFileName });
+          // 🔥 关键修复：转换为标准MP4（与新格式处理一致）
+          logger.info('🔄 Converting temp file to standard MP4 (old format)...');
+          await this.streamManager.convertSegmentToStandardMp4(file.path, newPath);
+          logger.info('✅ Temp file converted and renamed (old format)', { from: path.basename(file.path), to: newFileName });
         } else {
           logger.warn(`⚠️ Target file already exists: ${newFileName}`);
         }
@@ -492,8 +494,20 @@ class RecordingRecoveryService {
       logger.info(`🎯 Target name: ${newFileName}`);
       
       if (!fs.existsSync(newPath)) {
-        fs.renameSync(file.path, newPath);
-        logger.info('✅ Temp file renamed', { from: path.basename(file.path), to: newFileName });
+        // 🔥 关键修复：转换为标准MP4而非简单重命名
+        // 
+        // 问题根因：
+        // - temp文件使用Fragmented MP4（防崩溃保护）
+        // - 异常中断后，Fragmented MP4可能只能播放部分内容
+        // - 需要转换为标准MP4确保完整播放
+        //
+        // 解决方案：
+        // - 调用streamManager的转换方法（与分段完成逻辑一致）
+        // - 使用 -c copy 避免重新编码
+        // - 转换失败时降级为直接重命名
+        logger.info('🔄 Converting temp file to standard MP4...');
+        await this.streamManager.convertSegmentToStandardMp4(file.path, newPath);
+        logger.info('✅ Temp file converted and renamed', { from: path.basename(file.path), to: newFileName });
       } else {
         logger.warn(`⚠️ Target file already exists: ${newFileName}`);
       }
