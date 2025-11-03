@@ -115,7 +115,8 @@ class VideoCleanupScheduler {
       // 4. 遍历每个频道进行清理
       for (const channel of channels) {
         try {
-          if (channel.recordConfig && channel.recordConfig.enabled) {
+          // ✅ 修复：只要有recordConfig就清理，不管录制是否启用
+          if (channel.recordConfig) {
             // 存储路径需要加上频道ID
             const baseStoragePath = channel.recordConfig.storagePath || `/var/www/recordings`;
             const storagePath = path.join(baseStoragePath, channel.id);
