@@ -136,13 +136,41 @@ async function handleRequest(request, env, ctx) {
         });
       }
       
-      // HLS代理路由
+      // HLS代理路由（🆕 带缓存优化）
       if (path.match(/^\/tunnel-proxy\/hls\/(.+?)\/(.+)$/) && method === 'GET') {
         const [, channelId, file] = path.match(/^\/tunnel-proxy\/hls\/(.+?)\/(.+)$/);
         
         console.log('🎯 HLS PROXY REQUEST:', { path, channelId, file });
         
-        // 构建VPS的真实HLS URL
+        // 🆕 构建缓存键（使用完整URL作为缓存键）
+        const cacheKey = new Request(url.toString(), request);
+        const cache = caches.default;
+        
+        // 🆕 Step 1: 尝试从缓存获取
+        let cachedResponse = await cache.match(cacheKey);
+        
+        if (cachedResponse) {
+          console.log('✅ CACHE HIT:', file);
+          
+          // 克隆响应以添加缓存命中标识
+          const headers = new Headers(cachedResponse.headers);
+          headers.set('X-Cache-Status', 'HIT');
+          headers.set('X-Cache-Channel', channelId);
+          
+          // 保持CORS头
+          Object.entries(corsHeaders).forEach(([key, value]) => {
+            headers.set(key, value);
+          });
+          
+          return new Response(cachedResponse.body, {
+            status: cachedResponse.status,
+            headers: headers
+          });
+        }
+        
+        console.log('❌ CACHE MISS:', file);
+        
+        // 🆕 Step 2: 缓存未命中，从VPS获取
         const vpsHlsUrl = `${env.VPS_API_URL}/hls/${channelId}/${file}`;
         
         try {
@@ -157,21 +185,58 @@ async function handleRequest(request, env, ctx) {
           
           console.log('🔄 VPS RESPONSE:', vpsResponse.status);
           
-          // 复制VPS响应头并添加CORS头
-          const newHeaders = new Headers(vpsResponse.headers);
+          if (!vpsResponse.ok) {
+            // VPS返回错误，不缓存
+            return new Response(vpsResponse.body, {
+              status: vpsResponse.status,
+              headers: corsHeaders
+            });
+          }
+          
+          // 🆕 Step 3: 准备缓存响应
+          const headers = new Headers(vpsResponse.headers);
+          
+          // 添加CORS头
           Object.entries(corsHeaders).forEach(([key, value]) => {
-            newHeaders.set(key, value);
+            headers.set(key, value);
           });
           
-          // 添加代理标识头（按DUAL_DIMENSION_ROUTING_ARCHITECTURE.md标准）
-          newHeaders.set('X-Proxied-By', 'Workers-Tunnel-Proxy');  // 设计文档标准字段
-          newHeaders.set('X-Proxy-Channel', channelId);
-          newHeaders.set('Access-Control-Expose-Headers', 'X-Proxied-By, X-Proxy-Channel');
+          // 添加代理标识头
+          headers.set('X-Proxied-By', 'Workers-Tunnel-Proxy');
+          headers.set('X-Proxy-Channel', channelId);
+          headers.set('X-Cache-Status', 'MISS');
+          headers.set('Access-Control-Expose-Headers', 'X-Proxied-By, X-Proxy-Channel, X-Cache-Status');
           
-          return new Response(vpsResponse.body, {
+          // 🔥 关键：根据文件类型设置缓存策略
+          if (file.endsWith('.m3u8')) {
+            // 播放列表：缓存2秒（与HLS分片更新频率一致）
+            headers.set('Cache-Control', 'public, max-age=2, s-maxage=2');
+            console.log('📝 Cache strategy: playlist.m3u8 → 2s');
+          } else if (file.endsWith('.ts')) {
+            // TS分片：缓存60秒（分片文件不会改变）
+            headers.set('Cache-Control', 'public, max-age=60, s-maxage=60, immutable');
+            console.log('📝 Cache strategy: segment.ts → 60s');
+          } else {
+            // 其他文件：默认10秒
+            headers.set('Cache-Control', 'public, max-age=10, s-maxage=10');
+          }
+          
+          // 创建最终响应
+          const response = new Response(vpsResponse.body, {
             status: vpsResponse.status,
-            headers: newHeaders
+            headers: headers
           });
+          
+          // 🆕 Step 4: 异步写入缓存（使用waitUntil避免阻塞响应）
+          ctx.waitUntil(
+            cache.put(cacheKey, response.clone()).then(() => {
+              console.log('💾 CACHED:', file);
+            }).catch(err => {
+              console.error('❌ Cache write failed:', err.message);
+            })
+          );
+          
+          return response;
           
         } catch (error) {
           console.error('❌ TUNNEL PROXY ERROR:', error);

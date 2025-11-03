@@ -9,11 +9,13 @@ module.exports = {
       // 环境配置
       env: {
         NODE_ENV: 'development',
-        PORT: 3000
+        PORT: 3000,
+        TZ: 'Asia/Shanghai'  // 🔥 设置时区为北京时间
       },
       env_production: {
         NODE_ENV: 'production',
-        PORT: 3000
+        PORT: 3000,
+        TZ: 'Asia/Shanghai'  // 🔥 设置时区为北京时间
       },
 
       // 自动重启配置

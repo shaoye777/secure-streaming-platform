@@ -253,25 +253,49 @@ else
     fi
 fi
 
-# 7. 重启PM2服务
-echo "🔄 重启PM2服务..."
-pm2 reload vps-transcoder-api
-if [ $? -eq 0 ]; then
-    echo "✅ PM2重启成功"
+# 7. 同步ecosystem.config.js到VPS
+echo "📄 同步PM2配置文件..."
+if [ -f "$GIT_DIR/vps-transcoder-api/ecosystem.config.js" ]; then
+    cp "$GIT_DIR/vps-transcoder-api/ecosystem.config.js" /opt/yoyo-transcoder/
+    echo "✅ ecosystem.config.js已同步"
 else
-    echo "❌ PM2重启失败"
-    exit 1
+    echo "⚠️ ecosystem.config.js不存在，使用旧方式重启"
 fi
 
-# 8. 等待服务启动
+# 8. 重启PM2服务（使用配置文件）
+echo "🔄 重启PM2服务..."
+cd /opt/yoyo-transcoder
+
+# 尝试使用配置文件重启
+if [ -f "ecosystem.config.js" ]; then
+    echo "📄 使用ecosystem.config.js重启..."
+    pm2 reload ecosystem.config.js --env production
+    if [ $? -eq 0 ]; then
+        echo "✅ PM2重启成功（使用配置文件）"
+    else
+        echo "❌ PM2重启失败"
+        exit 1
+    fi
+else
+    echo "⚠️ 配置文件不存在，使用传统方式重启..."
+    pm2 reload vps-transcoder-api
+    if [ $? -eq 0 ]; then
+        echo "✅ PM2重启成功"
+    else
+        echo "❌ PM2重启失败"
+        exit 1
+    fi
+fi
+
+# 9. 等待服务启动
 echo "⏳ 等待服务启动..."
 sleep 3
 
-# 9. 检查服务状态
+# 10. 检查服务状态
 echo "🔍 检查服务状态..."
 pm2 list | grep vps-transcoder-api
 
-# 10. 测试健康检查
+# 11. 测试健康检查
 echo "📡 测试服务健康..."
 if curl -s http://localhost:3000/health >/dev/null; then
     echo "✅ 服务健康检查通过"
