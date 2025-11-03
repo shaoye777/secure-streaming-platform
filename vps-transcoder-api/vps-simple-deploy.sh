@@ -10,43 +10,100 @@ GIT_DIR="/tmp/github/secure-streaming-platform"
 SOURCE_DIR="$GIT_DIR/vps-transcoder-api/vps-transcoder-api/src"
 TARGET_DIR="/opt/yoyo-transcoder/src"
 
-# 1. 进入Git目录
-echo "📁 进入Git目录..."
-cd "$GIT_DIR/vps-transcoder-api" || { echo "❌ Git目录不存在"; exit 1; }
+# 1. 检查Git目录是否存在
+echo "📁 检查Git目录..."
+if [ ! -d "$GIT_DIR" ]; then
+    echo "❌ Git目录不存在，需要重新克隆"
+    GIT_CORRUPTED=1
+else
+    cd "$GIT_DIR/vps-transcoder-api" || { echo "❌ 无法进入Git子目录"; GIT_CORRUPTED=1; }
+fi
 
 # 2. 强制拉取最新代码（放弃本地修改）
-echo "📥 强制拉取最新代码..."
-echo "⚠️ 检查本地修改和冲突..."
-
-# 强制重置所有本地修改
-echo "🔄 强制重置本地状态..."
-git reset --hard HEAD
-git clean -fd
-
-# 检查是否有未提交的更改
-if ! git diff --quiet || ! git diff --cached --quiet; then
-    echo "🔄 仍有本地修改，再次强制重置..."
-    git reset --hard HEAD
-    git clean -fd
+if [ -z "$GIT_CORRUPTED" ]; then
+    echo "📥 强制拉取最新代码..."
+    echo "⚠️ 检查本地修改和冲突..."
+    
+    # 强制重置所有本地修改（捕获错误输出）
+    echo "🔄 强制重置本地状态..."
+    RESET_OUTPUT=$(git reset --hard HEAD 2>&1)
+    RESET_STATUS=$?
+    
+    # 检查是否出现Git仓库损坏错误
+    if [ $RESET_STATUS -ne 0 ] || echo "$RESET_OUTPUT" | grep -qi "unable to read\|Could not reset index\|fatal.*sha1"; then
+        echo "⚠️ 检测到Git仓库损坏："
+        echo "$RESET_OUTPUT" | head -3
+        GIT_CORRUPTED=1
+    else
+        git clean -fd
+        
+        # 检查是否有未提交的更改
+        if ! git diff --quiet || ! git diff --cached --quiet; then
+            echo "🔄 仍有本地修改，再次强制重置..."
+            git reset --hard HEAD
+            git clean -fd
+        fi
+        
+        # 强制拉取最新代码
+        echo "📥 强制拉取master分支..."
+        FETCH_OUTPUT=$(git fetch origin master 2>&1)
+        FETCH_STATUS=$?
+        
+        # 检查fetch是否也出错
+        if [ $FETCH_STATUS -ne 0 ] || echo "$FETCH_OUTPUT" | grep -qi "unable to read\|Could not reset\|fatal.*sha1"; then
+            echo "⚠️ 检测到Git仓库损坏（fetch阶段）"
+            GIT_CORRUPTED=1
+        else
+            # 检查是否需要合并
+            LOCAL=$(git rev-parse HEAD 2>/dev/null)
+            REMOTE=$(git rev-parse origin/master 2>/dev/null)
+            
+            if [ "$LOCAL" != "$REMOTE" ]; then
+                echo "🔄 检测到版本差异，强制同步到最新版本..."
+                RESET_REMOTE_OUTPUT=$(git reset --hard origin/master 2>&1)
+                if [ $? -ne 0 ] || echo "$RESET_REMOTE_OUTPUT" | grep -qi "unable to read\|Could not reset\|fatal.*sha1"; then
+                    echo "⚠️ 检测到Git仓库损坏（reset阶段）"
+                    GIT_CORRUPTED=1
+                else
+                    echo "✅ 已强制同步到最新版本: $(git rev-parse --short HEAD)"
+                fi
+            else
+                echo "✅ 已是最新版本: $(git rev-parse --short HEAD)"
+            fi
+        fi
+    fi
 fi
 
-# 强制拉取最新代码
-echo "📥 强制拉取master分支..."
-git fetch origin master
-
-# 检查是否需要合并
-LOCAL=$(git rev-parse HEAD)
-REMOTE=$(git rev-parse origin/master)
-
-if [ "$LOCAL" != "$REMOTE" ]; then
-    echo "🔄 检测到版本差异，强制同步到最新版本..."
-    git reset --hard origin/master
-    echo "✅ 已强制同步到最新版本: $(git rev-parse --short HEAD)"
-else
-    echo "✅ 已是最新版本: $(git rev-parse --short HEAD)"
+# 3. 如果检测到Git仓库损坏，自动修复（重新克隆）
+if [ ! -z "$GIT_CORRUPTED" ]; then
+    echo ""
+    echo "🔧 开始修复Git仓库..."
+    echo "📍 删除损坏的Git仓库..."
+    
+    # 返回上级目录
+    cd /tmp/github || cd /tmp
+    
+    # 删除损坏的仓库
+    rm -rf secure-streaming-platform
+    
+    echo "📥 重新克隆Git仓库..."
+    # 优先使用SSH，失败则使用HTTPS
+    if git clone git@github.com:shao-ye/secure-streaming-platform.git; then
+        echo "✅ Git仓库重新克隆成功（SSH）"
+    elif git clone https://github.com/shao-ye/secure-streaming-platform.git; then
+        echo "✅ Git仓库重新克隆成功（HTTPS）"
+    else
+        echo "❌ Git仓库克隆失败，请检查网络连接"
+        exit 1
+    fi
+    
+    # 进入新克隆的目录
+    cd "$GIT_DIR/vps-transcoder-api" || { echo "❌ 克隆后无法进入目录"; exit 1; }
+    echo "✅ Git仓库已修复，当前版本: $(git rev-parse --short HEAD)"
+    echo ""
 fi
 
-# 3. 使用rsync同步代码（无交互，可靠）
+# 4. 使用rsync同步代码（无交互，可靠）
 echo "🔄 同步代码..."
 if command -v rsync >/dev/null 2>&1; then
     # 使用rsync - 无交互，自动覆盖
@@ -62,7 +119,7 @@ else
     echo "✅ 备用同步完成"
 fi
 
-# 4. 检查关键文件是否存在
+# 5. 检查关键文件是否存在
 echo "🔍 检查关键文件..."
 KEY_FILES=(
     "$TARGET_DIR/routes/proxy.js"
@@ -80,7 +137,7 @@ for file in "${KEY_FILES[@]}"; do
     fi
 done
 
-# 5. 验证代码版本同步
+# 6. 验证代码版本同步
 echo "🔍 验证代码版本同步..."
 PROXY_MANAGER_FILE="$TARGET_DIR/services/ProxyManager.js"
 APP_FILE="$TARGET_DIR/app.js"
@@ -113,7 +170,7 @@ else
     echo "⚠️ app.js中未找到VideoCleanupScheduler引用"
 fi
 
-# 6. 检查和安装系统依赖
+# 7. 检查和安装系统依赖
 echo "🔍 检查系统依赖..."
 
 # 检查nc命令
@@ -219,7 +276,7 @@ else
     echo "✅ 所有依赖完整"
 fi
 
-# 5. 验证proxy.js包含新路由
+# 8. 验证proxy.js包含新路由
 echo "🔍 验证代理路由..."
 if grep -q "router.post('/connect'" "$TARGET_DIR/routes/proxy.js"; then
     echo "✅ connect路由存在"
@@ -235,7 +292,7 @@ else
     exit 1
 fi
 
-# 6. 检查ProxyManager引用是否正确
+# 9. 检查ProxyManager引用是否正确
 echo "🔍 检查ProxyManager引用..."
 if grep -q "require('../services/ProxyManager')" "$TARGET_DIR/routes/proxy.js"; then
     echo "✅ ProxyManager引用正确"
@@ -253,7 +310,7 @@ else
     fi
 fi
 
-# 7. 同步ecosystem.config.js到VPS
+# 10. 同步ecosystem.config.js到VPS
 echo "📄 同步PM2配置文件..."
 if [ -f "$GIT_DIR/vps-transcoder-api/ecosystem.config.js" ]; then
     cp "$GIT_DIR/vps-transcoder-api/ecosystem.config.js" /opt/yoyo-transcoder/
@@ -262,7 +319,7 @@ else
     echo "⚠️ ecosystem.config.js不存在，使用旧方式重启"
 fi
 
-# 8. 重启PM2服务（使用配置文件）
+# 11. 重启PM2服务（使用配置文件）
 echo "🔄 重启PM2服务..."
 cd /opt/yoyo-transcoder
 
@@ -287,15 +344,15 @@ else
     fi
 fi
 
-# 9. 等待服务启动
+# 12. 等待服务启动
 echo "⏳ 等待服务启动..."
 sleep 3
 
-# 10. 检查服务状态
+# 13. 检查服务状态
 echo "🔍 检查服务状态..."
 pm2 list | grep vps-transcoder-api
 
-# 11. 测试健康检查
+# 14. 测试健康检查
 echo "📡 测试服务健康..."
 if curl -s http://localhost:3000/health >/dev/null; then
     echo "✅ 服务健康检查通过"
