@@ -17,7 +17,7 @@ function setGlobalEnv(env) {
  * 调用VPS API的通用函数
  */
 async function callVpsApi(endpoint, method = 'GET', data = null) {
-  const VPS_API_BASE = globalEnv?.VPS_API_URL || 'https://yoyo-vps.5202021.xyz';
+  const VPS_API_BASE = globalEnv?.VPS_API_URL;
   const VPS_API_KEY = globalEnv?.VPS_API_KEY;
   
   if (!VPS_API_KEY) {
@@ -252,7 +252,7 @@ export async function handleSystemStatus(request, env) {
 export async function handleHlsProxy(request, env, channelId, file) {
   setGlobalEnv(env);
   try {
-    const VPS_API_BASE = globalEnv?.VPS_API_URL || 'https://yoyo-vps.5202021.xyz';
+    const VPS_API_BASE = globalEnv?.VPS_API_URL;
     const VPS_API_KEY = globalEnv?.VPS_API_KEY;
     
     const hlsUrl = `${VPS_API_BASE}/hls/${channelId}/${file}`;

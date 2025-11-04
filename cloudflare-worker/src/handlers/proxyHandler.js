@@ -15,8 +15,8 @@ export class ProxyHandler {
   async handleRequest(request, env, path, method) {
     // 正确的CORS配置，支持withCredentials
     const origin = request.headers.get('Origin');
-    const allowedOrigins = ['https://yoyo.5202021.xyz', 'https://secure-streaming-platform.pages.dev'];
-    const allowOrigin = allowedOrigins.includes(origin) ? origin : 'https://yoyo.5202021.xyz';
+    const allowedOrigins = [env.FRONTEND_DOMAIN, env.PAGES_DOMAIN].filter(Boolean);
+    const allowOrigin = allowedOrigins.includes(origin) ? origin : env.FRONTEND_DOMAIN;
     
     const corsHeaders = {
       'Access-Control-Allow-Origin': allowOrigin,
@@ -775,7 +775,7 @@ export class ProxyHandler {
    */
   async syncConfigToVPS(config, env) {
     try {
-      const vpsEndpoint = `${env.VPS_API_BASE || 'https://yoyo-vps.5202021.xyz'}/api/proxy/config`;
+      const vpsEndpoint = `${env.VPS_API_URL}/api/proxy/config`;
       
       // 设置5秒超时
       const controller = new AbortController();
@@ -817,7 +817,7 @@ export class ProxyHandler {
    */
   async fetchVPSProxyStatus(env) {
     try {
-      const vpsEndpoint = `${env.VPS_API_BASE || 'https://yoyo-vps.5202021.xyz'}/api/proxy/status`;
+      const vpsEndpoint = `${env.VPS_API_URL}/api/proxy/status`;
       console.log('调试 - 获取VPS状态，端点:', vpsEndpoint);
       
       const response = await fetch(vpsEndpoint, {
@@ -851,7 +851,7 @@ export class ProxyHandler {
     
     try {
       // 调用VPS进行真实代理测试，10秒超时
-      const vpsEndpoint = `${env.VPS_API_BASE || 'https://yoyo-vps.5202021.xyz'}/api/proxy/test`;
+      const vpsEndpoint = `${env.VPS_API_URL}/api/proxy/test`;
       
       const timeoutPromise = new Promise((_, reject) => {
         setTimeout(() => reject(new Error('VPS测试超时')), 10000); // 10秒超时

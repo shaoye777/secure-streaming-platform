@@ -28,10 +28,10 @@ const EMERGENCY_ADMIN = {
 /**
  * 处理CORS预检请求
  */
-function handleCors(request) {
+function handleCors(request, env) {
   const origin = request.headers.get('Origin');
-  const allowedOrigins = ['https://yoyo.5202021.xyz', 'https://secure-streaming-platform.pages.dev'];
-  const allowOrigin = allowedOrigins.includes(origin) ? origin : 'https://yoyo.5202021.xyz';
+  const allowedOrigins = [env.FRONTEND_DOMAIN, env.PAGES_DOMAIN].filter(Boolean);
+  const allowOrigin = allowedOrigins.includes(origin) ? origin : env.FRONTEND_DOMAIN;
   
   const corsHeaders = {
     'Access-Control-Allow-Origin': allowOrigin,
@@ -221,7 +221,7 @@ async function handleRequest(request, env, ctx) {
   const method = request.method;
 
   // 处理CORS
-  const corsHeaders = handleCors(request);
+  const corsHeaders = handleCors(request, env);
   if (request.method === 'OPTIONS') {
     return corsHeaders;
   }
@@ -463,7 +463,7 @@ async function handleRequest(request, env, ctx) {
     if (path === '/api/admin/cleanup/trigger' && method === 'POST') {
       try {
         // 调用VPS的清理端点
-        const vpsUrl = 'https://yoyo-vps.5202021.xyz/api/admin/cleanup/execute';
+        const vpsUrl = `${env.VPS_API_URL}/api/admin/cleanup/execute`;
         const vpsResponse = await fetch(vpsUrl, {
           method: 'POST',
           headers: {
@@ -738,7 +738,7 @@ async function handleRequest(request, env, ctx) {
             const match = vpsHlsUrl.match(/\/hls\/(.+)/);
             if (match) {
               const hlsPath = match[1]; // channelId/playlist.m3u8
-              responseData.data.hlsUrl = `https://yoyoapi.5202021.xyz/tunnel-proxy/hls/${hlsPath}`;
+              responseData.data.hlsUrl = `${env.WORKER_DOMAIN}/tunnel-proxy/hls/${hlsPath}`;
               
               // 添加路由信息字段（按DUAL_DIMENSION_ROUTING_ARCHITECTURE.md设计）
               responseData.data.routingMode = 'tunnel+direct';
@@ -1465,7 +1465,7 @@ async function handleRequest(request, env, ctx) {
       
       // 测试VPS连接
       let vpsAvailable = false;
-      let vpsUrl = env.VPS_API_URL || 'https://yoyo-vps.5202021.xyz';
+      let vpsUrl = env.VPS_API_URL;
       let vpsTestResult = null;
       try {
         const vpsResponse = await fetch(`${vpsUrl}/health`, {
@@ -1666,17 +1666,17 @@ async function handleRequest(request, env, ctx) {
             updatedAt: new Date().toISOString(),
             endpoints: {
               tunnel: {
-                api: 'tunnel-api.yoyo-vps.5202021.xyz',
-                hls: 'tunnel-hls.yoyo-vps.5202021.xyz',
-                health: 'tunnel-health.yoyo-vps.5202021.xyz',
+                api: env.TUNNEL_API_DOMAIN,
+                hls: env.TUNNEL_HLS_DOMAIN,
+                health: env.TUNNEL_HEALTH_DOMAIN,
                 status: 'ready',
                 lastCheck: new Date().toISOString(),
                 responseTime: '245ms'
               },
               direct: {
-                api: 'yoyo-vps.5202021.xyz',
-                hls: 'yoyo-vps.5202021.xyz',
-                health: 'yoyo-vps.5202021.xyz',
+                api: env.VPS_API_URL?.replace(/^https?:\/\//, ''),
+                hls: env.VPS_API_URL?.replace(/^https?:\/\//, ''),
+                health: env.VPS_API_URL?.replace(/^https?:\/\//, ''),
                 status: 'healthy',
                 lastCheck: new Date().toISOString(),
                 responseTime: '156ms'
@@ -1764,7 +1764,7 @@ async function handleRequest(request, env, ctx) {
     // VPS日志API代理
     if (path.startsWith('/api/admin/logs/') && method === 'GET') {
       const logType = path.split('/').pop(); // recent, combined, error
-      const vpsUrl = `${env.VPS_API_URL || 'https://yoyo-vps.5202021.xyz'}/api/logs/${logType}${url.search}`;
+      const vpsUrl = `${env.VPS_API_URL}/api/logs/${logType}${url.search}`;
       
       try {
         const vpsResponse = await fetch(vpsUrl, {
@@ -1791,7 +1791,7 @@ async function handleRequest(request, env, ctx) {
 
     // 清空VPS日志API代理
     if (path === '/api/admin/logs/clear' && method === 'DELETE') {
-      const vpsUrl = `${env.VPS_API_URL || 'https://yoyo-vps.5202021.xyz'}/api/logs/clear`;
+      const vpsUrl = `${env.VPS_API_URL}/api/logs/clear`;
       
       try {
         const vpsResponse = await fetch(vpsUrl, {
