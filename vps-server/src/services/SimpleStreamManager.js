@@ -1041,8 +1041,8 @@ class SimpleStreamManager {
       
       // 🆕 分段模式：监听segment切换（使用strftime后文件名已准确，无需重命名）
       if (recordConfig && recordConfig.segmentEnabled) {
-        // 匹配FFmpeg输出: Opening 'xxx_seg_001.mp4' for writing
-        const match = output.match(/Opening '.*_seg_(\d+)\.mp4' for writing/);
+        // 匹配FFmpeg输出: Opening 'xxx_temp_001.mp4' for writing
+        const match = output.match(/Opening '.*_temp_(\d+)\.mp4' for writing/);
         if (match) {
           const currentIndex = parseInt(match[1]);
           
@@ -1053,7 +1053,7 @@ class SimpleStreamManager {
           });
           
           // 🔧 使用strftime后，文件名已包含准确的开始时间，无需重命名
-          // 文件名格式：channelName_channelId_20251104_152039_seg_001.mp4
+          // 文件名格式：channelName_channelId_20251104_152039_temp_001.mp4
           // 如果将来需要转换fragmented MP4，可以在这里添加转换逻辑
         }
       }
@@ -1099,7 +1099,7 @@ class SimpleStreamManager {
     if (recordConfig.segmentEnabled) {
       // 使用FFmpeg的strftime占位符，每个segment会自动使用其实际开始时间
       // %Y%m%d = 20251104, %H%M%S = 152039 (实际segment开始时间)
-      const filename = `${channelName}_${channelId}_%Y%m%d_%H%M%S_seg_%03d.mp4`;
+      const filename = `${channelName}_${channelId}_%Y%m%d_%H%M%S_temp_%03d.mp4`;
       return path.join(basePath, channelId, dateStr, filename);
     }
     
