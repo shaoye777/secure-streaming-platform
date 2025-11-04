@@ -999,11 +999,15 @@ class SimpleStreamManager {
       const result = execSync('ps aux | grep v2ray | grep -v grep', { encoding: 'utf8' });
       
       if (result.trim()) {
-        env.http_proxy = 'socks5://127.0.0.1:1080';
-        env.https_proxy = 'socks5://127.0.0.1:1080';
-        env.HTTP_PROXY = 'socks5://127.0.0.1:1080';
-        env.HTTPS_PROXY = 'socks5://127.0.0.1:1080';
-        logger.info('FFmpeg will use proxy for RTMP connection', { channelId });
+        const proxyUrl = `socks5://127.0.0.1:${this.socks5Port}`;
+        env.http_proxy = proxyUrl;
+        env.https_proxy = proxyUrl;
+        env.HTTP_PROXY = proxyUrl;
+        env.HTTPS_PROXY = proxyUrl;
+        logger.info('FFmpeg will use proxy for RTMP connection', { 
+          channelId,
+          proxyPort: this.socks5Port 
+        });
       }
     } catch (error) {
       logger.warn('No proxy detected, using direct connection', { channelId });
