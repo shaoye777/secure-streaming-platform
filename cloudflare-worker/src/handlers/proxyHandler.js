@@ -785,7 +785,7 @@ export class ProxyHandler {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-API-Key': env.VPS_API_KEY || 'default-api-key'
+          'X-API-Key': env.VPS_API_KEY
         },
         body: JSON.stringify({
           action: 'update',
@@ -823,7 +823,7 @@ export class ProxyHandler {
       const response = await fetch(vpsEndpoint, {
         method: 'GET',
         headers: {
-          'X-API-Key': env.VPS_API_KEY || 'default-api-key'
+          'X-API-Key': env.VPS_API_KEY
         }
       });
       
@@ -861,7 +861,7 @@ export class ProxyHandler {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-API-Key': env.VPS_API_KEY || 'default-api-key'
+          'X-API-Key': env.VPS_API_KEY
         },
         body: JSON.stringify({
           proxyId: proxy.id,

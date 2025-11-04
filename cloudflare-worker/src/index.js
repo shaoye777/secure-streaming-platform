@@ -18,12 +18,12 @@ import { handleRecordAPI } from './handlers/recordHandler.js';
 import { handleChannelConfigAPI } from './handlers/channelConfigHandler.js';
 
 // 🔥 V2.6: CHANNELS硬编码已移除，改用频道索引系统
-// 应急admin账号（KV读取达到限制时使用）
-const EMERGENCY_ADMIN = {
-  username: 'admin',
-  password: 'admin123',  // 实际应用中应使用环境变量
+// 应急admin账号（KV读取达到限制时使用，从环境变量读取）
+const getEmergencyAdmin = (env) => ({
+  username: env.EMERGENCY_ADMIN_USERNAME || 'admin',
+  password: env.EMERGENCY_ADMIN_PASSWORD,  // 必须在Dashboard配置
   role: 'admin'
-};
+});
 
 /**
  * 处理CORS预检请求
@@ -1041,15 +1041,16 @@ async function handleRequest(request, env, ctx) {
         }
         
         // 🔥 V2.6: 应急admin登录（KV读取失败或达到限制时使用）
-        if (body.username === EMERGENCY_ADMIN.username && body.password === EMERGENCY_ADMIN.password) {
+        const emergencyAdmin = getEmergencyAdmin(env);
+        if (body.username === emergencyAdmin.username && body.password === emergencyAdmin.password) {
           console.warn('⚠️ 使用应急admin账号登录（KV可能不可用）');
           return new Response(JSON.stringify({
             status: 'success',
             message: 'Emergency admin login successful',
             data: {
               user: { 
-                username: EMERGENCY_ADMIN.username, 
-                role: EMERGENCY_ADMIN.role,
+                username: emergencyAdmin.username, 
+                role: emergencyAdmin.role,
                 displayName: 'Emergency Admin'
               },
               token: 'emergency-token-' + Date.now()
@@ -1077,15 +1078,16 @@ async function handleRequest(request, env, ctx) {
         console.error('Login error:', error);
         
         // 🔥 V2.6: KV服务异常时的应急admin登录
-        if (body.username === EMERGENCY_ADMIN.username && body.password === EMERGENCY_ADMIN.password) {
+        const emergencyAdmin = getEmergencyAdmin(env);
+        if (body.username === emergencyAdmin.username && body.password === emergencyAdmin.password) {
           console.warn('⚠️ KV服务异常，使用应急admin账号登录');
           return new Response(JSON.stringify({
             status: 'success',
             message: 'Emergency admin login (KV error)',
             data: {
               user: { 
-                username: EMERGENCY_ADMIN.username, 
-                role: EMERGENCY_ADMIN.role,
+                username: emergencyAdmin.username, 
+                role: emergencyAdmin.role,
                 displayName: 'Emergency Admin'
               },
               token: 'emergency-token-' + Date.now()
