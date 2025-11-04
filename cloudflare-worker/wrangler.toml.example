@@ -1,0 +1,53 @@
+name = "your-worker-name"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[env.production]
+name = "your-worker-name-production"
+route = { pattern = "your-api-domain.com/*", zone_name = "your-domain.com" }
+
+[env.production.vars]
+ENVIRONMENT = "production"
+VERSION = "2.0.0"
+
+# 域名配置 - 请修改为您的域名
+FRONTEND_DOMAIN = "https://your-frontend-domain.com"
+PAGES_DOMAIN = "https://your-pages-domain.pages.dev"
+WORKER_DOMAIN = "https://your-api-domain.com"
+
+# VPS配置 - 请修改为您的VPS地址
+VPS_API_URL = "https://your-vps-domain.com"
+
+# 隧道域名配置 - 如果使用Cloudflare Tunnel，请修改
+TUNNEL_API_DOMAIN = "tunnel-api.your-vps-domain.com"
+TUNNEL_HLS_DOMAIN = "tunnel-hls.your-vps-domain.com"
+TUNNEL_HEALTH_DOMAIN = "tunnel-health.your-vps-domain.com"
+
+# 应急Admin配置
+EMERGENCY_ADMIN_USERNAME = "admin"
+
+# 注意：以下敏感信息必须在 Cloudflare Dashboard 中配置为 Secret：
+# - VPS_API_KEY (Secret)
+# - EMERGENCY_ADMIN_PASSWORD (Secret)
+
+# KV命名空间 - 请在Cloudflare Dashboard创建KV，然后填入ID
+[[env.production.kv_namespaces]]
+binding = "YOYO_USER_DB"
+id = "your-kv-namespace-id"
+
+# R2存储桶 - 请在Cloudflare Dashboard创建R2，然后填入bucket名称
+[[env.production.r2_buckets]]
+binding = "PROXY_TEST_HISTORY"
+bucket_name = "your-proxy-test-history-bucket"
+
+[[env.production.r2_buckets]]
+binding = "LOGIN_LOGS"
+bucket_name = "your-login-logs-bucket"
+
+[env.development]
+name = "your-worker-name-dev"
+
+[env.development.vars]
+ENVIRONMENT = "development"
+VERSION = "2.0.0"
