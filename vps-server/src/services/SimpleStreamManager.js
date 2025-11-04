@@ -964,13 +964,14 @@ class SimpleStreamManager {
       ffmpegArgs.push(
         '-f', 'segment',
         '-segment_time', segmentSeconds.toString(),
+        '-strftime', '1',  // 🔧 启用strftime，支持文件名中的时间占位符
         '-segment_format', 'mp4',
         '-segment_format_options', 'movflags=+frag_keyframe+empty_moov+default_base_moof',
         '-reset_timestamps', '1',
         '-y',
         recordingPath
       );
-      logger.info('Using segment recording with fragmented MP4', { 
+      logger.info('Using segment recording with strftime and fragmented MP4', { 
         segmentDuration: recordConfig.segmentDuration,
         segmentSeconds 
       });
@@ -1038,35 +1039,22 @@ class SimpleStreamManager {
         logger.error('FFmpeg error detected', { channelId, output: output.trim() });
       }
       
-      // 🆕 分段模式：监听segment切换，实时重命名已完成的分段
+      // 🆕 分段模式：监听segment切换（使用strftime后文件名已准确，无需重命名）
       if (recordConfig && recordConfig.segmentEnabled) {
-        // 匹配FFmpeg输出: Opening 'xxx_temp_001.mp4' for writing
-        const match = output.match(/Opening '.*_temp_(\d+)\.mp4' for writing/);
+        // 匹配FFmpeg输出: Opening 'xxx_seg_001.mp4' for writing
+        const match = output.match(/Opening '.*_seg_(\d+)\.mp4' for writing/);
         if (match) {
           const currentIndex = parseInt(match[1]);
           
-          // 当检测到新segment开始时，说明上一个segment已完成
-          if (currentIndex > 0) {
-            const completedIndex = currentIndex - 1;
-            
-            logger.info('Segment switch detected, scheduling rename', { 
-              channelId, 
-              completedIndex,
-              currentIndex
-            });
-            
-            // 等待2秒后重命名（确保FFmpeg完成文件写入）
-            setTimeout(() => {
-              this.renameCompletedSegment(channelId, completedIndex, recordConfig)
-                .catch(err => {
-                  logger.error('Failed to rename completed segment', {
-                    channelId,
-                    completedIndex,
-                    error: err.message
-                  });
-                });
-            }, 2000);
-          }
+          logger.info('Segment switch detected', { 
+            channelId, 
+            currentIndex,
+            note: 'Using strftime - filename already accurate'
+          });
+          
+          // 🔧 使用strftime后，文件名已包含准确的开始时间，无需重命名
+          // 文件名格式：channelName_channelId_20251104_152039_seg_001.mp4
+          // 如果将来需要转换fragmented MP4，可以在这里添加转换逻辑
         }
       }
     });
@@ -1107,9 +1095,11 @@ class SimpleStreamManager {
     
     const basePath = recordConfig.storagePath || this.recordingBaseDir;
     
-    // 🆕 分段录制：使用临时文件名（包含实际开始时间，避免文件名冲突）
+    // 🆕 分段录制：使用strftime动态文件名（每个分段使用实际开始时间）
     if (recordConfig.segmentEnabled) {
-      const filename = `${channelName}_${channelId}_${dateStr}_${timeStr}_temp_%03d.mp4`;
+      // 使用FFmpeg的strftime占位符，每个segment会自动使用其实际开始时间
+      // %Y%m%d = 20251104, %H%M%S = 152039 (实际segment开始时间)
+      const filename = `${channelName}_${channelId}_%Y%m%d_%H%M%S_seg_%03d.mp4`;
       return path.join(basePath, channelId, dateStr, filename);
     }
     
