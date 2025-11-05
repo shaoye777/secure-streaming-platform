@@ -35,7 +35,8 @@ async function getChannelConfig(env, channelId) {
           endTime: '17:00',
           workdaysOnly: false,
           storagePath: '/var/www/recordings'
-        }
+        },
+        videoAspectRatio: channelData.videoAspectRatio || 'original'  // 🆕 返回视频比例配置
       }
     };
   } catch (error) {
@@ -100,6 +101,17 @@ async function updateChannelConfig(env, ctx, channelId, data, username) {
       console.log('✅ [updateChannelConfig] RecordConfig updated');
     }
     
+    // 🆕 更新视频比例配置
+    if (data.videoAspectRatio) {
+      const validRatios = ['original', '4:3', '16:9'];
+      if (!validRatios.includes(data.videoAspectRatio)) {
+        throw new Error(`Invalid videoAspectRatio: ${data.videoAspectRatio}`);
+      }
+      
+      channelData.videoAspectRatio = data.videoAspectRatio;
+      console.log('✅ [updateChannelConfig] VideoAspectRatio updated:', data.videoAspectRatio);
+    }
+    
     // 更新频道的整体时间戳
     channelData.updatedAt = now;
     
@@ -140,7 +152,8 @@ async function updateChannelConfig(env, ctx, channelId, data, username) {
       message: 'Channel config updated successfully',
       data: {
         preloadConfig: channelData.preloadConfig,
-        recordConfig: channelData.recordConfig
+        recordConfig: channelData.recordConfig,
+        videoAspectRatio: channelData.videoAspectRatio  // 🆕 返回保存的值
       },
       debug: {
         vpsNotified: vpsNotifyResult?.success || false,
