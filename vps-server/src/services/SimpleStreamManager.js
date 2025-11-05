@@ -940,14 +940,16 @@ class SimpleStreamManager {
     const outputFile = path.join(outputDir, 'playlist.m3u8');
     const ffmpegArgs = [
       '-i', rtmpUrl,
+      
+      // 🆕 使用filter_complex处理16:9并分发到两个输出
+      // [0:v] 选择第一个输入的视频流，scale转换为16:9，然后split成2路
+      '-filter_complex', '[0:v]scale=ih*16/9:ih,split=2[vout1][vout2]',
+      
+      // HLS输出 - 使用第一路视频流
+      '-map', '[vout1]',
       '-c:v', 'libx264',
       '-preset', 'ultrafast',
       '-an',
-      
-      // 🆕 视频滤镜 - 保持高度，调整宽度到16:9
-      '-vf', 'scale=ih*16/9:ih',
-      
-      // HLS输出
       '-f', 'hls',
       '-hls_time', '2',
       '-hls_list_size', '6',
@@ -957,8 +959,8 @@ class SimpleStreamManager {
       '-y',
       outputFile,
       
-      // MP4录制输出 - 🔧 使用滤镜后不能copy，需要重新编码
-      // 🔧 修复：使用-an而不是-c:a copy，因为某些RTMP源的音频编码（如pcm_mulaw）不被MP4支持
+      // MP4录制输出 - 使用第二路视频流（16:9已应用）
+      '-map', '[vout2]',
       '-c:v', 'libx264',
       '-preset', 'ultrafast',
       '-an'  // 不录制音频，避免音频编码兼容性问题
