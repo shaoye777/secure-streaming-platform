@@ -110,12 +110,39 @@ class SimpleStreamManager {
   }
 
   /**
+   * 根据频道配置生成视频滤镜
+   * @param {Object} channelConfig - 频道配置（含videoAspectRatio）
+   * @returns {string|null} FFmpeg滤镜参数
+   */
+  getVideoFilter(channelConfig) {
+    const aspectRatio = channelConfig?.videoAspectRatio || 'original';
+    
+    switch (aspectRatio) {
+      case '4:3':
+        return 'scale=ih*4/3:ih';
+      case '16:9':
+        return 'scale=ih*16/9:ih';
+      case 'original':
+      default:
+        return null;  // 不使用滤镜
+    }
+  }
+
+  /**
    * 启动观看 - 按频道ID管理
    * @param {string} channelId - 频道ID
    * @param {string} rtmpUrl - RTMP源地址
+   * @param {Object} channelConfig - 频道配置（含videoAspectRatio）
    * @returns {Object} 观看结果
    */
-  async startWatching(channelId, rtmpUrl) {
+  async startWatching(channelId, rtmpUrl, channelConfig = null) {
+    // 🆕 设置当前频道的滤镜
+    this.videoFilter = this.getVideoFilter(channelConfig);
+    logger.info('Video filter for channel', { 
+      channelId, 
+      aspectRatio: channelConfig?.videoAspectRatio || 'original',
+      filter: this.videoFilter || 'none'
+    });
     try {
       // 检查频道是否已在处理
       const existingChannel = this.activeStreams.get(channelId);
@@ -133,7 +160,21 @@ class SimpleStreamManager {
           return await this.startNewStream(channelId, rtmpUrl);
         }
         
-        // RTMP地址未变更，直接返回现有进程
+        // RTMP地址未变更，检查视频比例是否变更
+        const oldFilter = existingChannel.videoFilter;
+        const newFilter = this.videoFilter;
+        if (oldFilter !== newFilter) {
+          logger.info('Video filter changed for channel, restarting process', { 
+            channelId, 
+            oldFilter: oldFilter || 'none', 
+            newFilter: newFilter || 'none'
+          });
+          
+          // 视频比例变更，停止旧进程并启动新进程
+          await this.stopFFmpegProcess(channelId);
+          return await this.startNewStream(channelId, rtmpUrl);
+        }
+        
         logger.debug('Channel already active, returning existing stream', { channelId });
         return existingChannel.hlsUrl;
       }
@@ -159,7 +200,8 @@ class SimpleStreamManager {
       rtmpUrl: rtmpUrl,
       hlsUrl: `${this.vpsBaseDomain}/hls/${channelId}/playlist.m3u8`,
       startTime: Date.now(),
-      process: null
+      process: null,
+      videoFilter: this.videoFilter  // 🆕 保存当前滤镜
     };
     
     try {
@@ -343,8 +385,8 @@ class SimpleStreamManager {
       // 🔥 禁用音频输出 - 避免PCM μ-law转码问题
       '-an',  // 不处理音频流
 
-      // 🆕 视频滤镜 - 保持高度，调整宽度到16:9
-      '-vf', 'scale=ih*16/9:ih',
+      // 🆕 根据配置动态添加滤镜
+      ...(this.videoFilter ? ['-vf', this.videoFilter] : []),
 
       // 🔥 HLS输出 - 简化配置
       '-f', 'hls',
@@ -939,32 +981,57 @@ class SimpleStreamManager {
     
     const outputFile = path.join(outputDir, 'playlist.m3u8');
     const ffmpegArgs = [
-      '-i', rtmpUrl,
-      
-      // 🆕 使用filter_complex处理16:9并分发到两个输出
-      // [0:v] 选择第一个输入的视频流，scale转换为16:9，然后split成2路
-      '-filter_complex', '[0:v]scale=ih*16/9:ih,split=2[vout1][vout2]',
-      
-      // HLS输出 - 使用第一路视频流
-      '-map', '[vout1]',
-      '-c:v', 'libx264',
-      '-preset', 'ultrafast',
-      '-an',
-      '-f', 'hls',
-      '-hls_time', '2',
-      '-hls_list_size', '6',
-      '-hls_segment_filename', path.join(outputDir, 'segment%03d.ts'),
-      '-hls_allow_cache', '0',
-      '-start_number', '0',
-      '-y',
-      outputFile,
-      
-      // MP4录制输出 - 使用第二路视频流（16:9已应用）
-      '-map', '[vout2]',
-      '-c:v', 'libx264',
-      '-preset', 'ultrafast',
-      '-an'  // 不录制音频，避免音频编码兼容性问题
+      '-i', rtmpUrl
     ];
+    
+    // 🆕 根据是否有滤镜决定使用不同的策略
+    if (this.videoFilter) {
+      // 有滤镜：使用filter_complex
+      ffmpegArgs.push(
+        '-filter_complex', `[0:v]${this.videoFilter},split=2[vout1][vout2]`,
+      
+        // HLS输出 - 使用第一路视频流
+        '-map', '[vout1]',
+        '-c:v', 'libx264',
+        '-preset', 'ultrafast',
+        '-an',
+        '-f', 'hls',
+        '-hls_time', '2',
+        '-hls_list_size', '6',
+        '-hls_segment_filename', path.join(outputDir, 'segment%03d.ts'),
+        '-hls_allow_cache', '0',
+        '-start_number', '0',
+        '-y',
+        outputFile,
+        
+        // MP4录制输出 - 使用第二路视频流
+        '-map', '[vout2]',
+        '-c:v', 'libx264',
+        '-preset', 'ultrafast',
+        '-an'
+      );
+    } else {
+      // 原始比例：不用滤镜，可以优化性能
+      ffmpegArgs.push(
+        // HLS输出
+        '-c:v', 'libx264',
+        '-preset', 'ultrafast',
+        '-an',
+        '-f', 'hls',
+        '-hls_time', '2',
+        '-hls_list_size', '6',
+        '-hls_segment_filename', path.join(outputDir, 'segment%03d.ts'),
+        '-hls_allow_cache', '0',
+        '-start_number', '0',
+        '-y',
+        outputFile,
+        
+        // MP4录制输出 - 原始比例
+        '-c:v', 'libx264',
+        '-preset', 'ultrafast',
+        '-an'
+      );
+    }
     
     // 🆕 根据配置决定录制方式
     if (recordConfig && recordConfig.segmentEnabled) {

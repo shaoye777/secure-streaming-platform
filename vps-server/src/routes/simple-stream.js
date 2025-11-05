@@ -5,6 +5,7 @@ const PreloadHealthCheck = require('../services/PreloadHealthCheck');
 const RecordScheduler = require('../services/RecordScheduler');  // 🆕 录制调度器
 const logger = require('../utils/logger');
 const authMiddleware = require('../middleware/auth');
+const axios = require('axios');  // 🆕 用于查询Workers配置
 
 const router = express.Router();
 
@@ -65,7 +66,28 @@ router.post('/start-watching', async (req, res) => {
     
     logger.info('Starting stream with provided parameters', { channelId, rtmpUrl });
     
-    const hlsUrl = await streamManager.startWatching(channelId, rtmpUrl);
+    // 🆕 从 Workers 获取频道配置
+    let channelConfig = null;
+    try {
+      const config = require('../../config');
+      const configUrl = `${config.workersApiUrl}/api/channel/${channelId}/config`;
+      const response = await axios.get(configUrl, { timeout: 3000 });
+      if (response.data.status === 'success') {
+        channelConfig = response.data.data;
+        logger.info('Fetched channel config', { 
+          channelId, 
+          videoAspectRatio: channelConfig.videoAspectRatio 
+        });
+      }
+    } catch (error) {
+      logger.warn('Failed to fetch channel config, using defaults', { 
+        channelId, 
+        error: error.message 
+      });
+    }
+    
+    // 启动观看，传递配置
+    const hlsUrl = await streamManager.startWatching(channelId, rtmpUrl, channelConfig);
     
     res.json({
       status: 'success',
