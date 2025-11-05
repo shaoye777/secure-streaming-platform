@@ -136,12 +136,12 @@ class SimpleStreamManager {
    * @returns {Object} 观看结果
    */
   async startWatching(channelId, rtmpUrl, channelConfig = null) {
-    // 🆕 设置当前频道的滤镜
-    this.videoFilter = this.getVideoFilter(channelConfig);
+    // 🆕 为每个频道生成独立的滤镜（作为局部变量）
+    const videoFilter = this.getVideoFilter(channelConfig);
     logger.info('Video filter for channel', { 
       channelId, 
       aspectRatio: channelConfig?.videoAspectRatio || 'original',
-      filter: this.videoFilter || 'none'
+      filter: videoFilter || 'none'
     });
     try {
       // 检查频道是否已在处理
@@ -157,12 +157,12 @@ class SimpleStreamManager {
           
           // RTMP地址变更，停止旧进程并启动新进程
           await this.stopFFmpegProcess(channelId);
-          return await this.startNewStream(channelId, rtmpUrl);
+          return await this.startNewStream(channelId, rtmpUrl, videoFilter);
         }
         
         // RTMP地址未变更，检查视频比例是否变更
         const oldFilter = existingChannel.videoFilter;
-        const newFilter = this.videoFilter;
+        const newFilter = videoFilter;
         if (oldFilter !== newFilter) {
           logger.info('Video filter changed for channel, restarting process', { 
             channelId, 
@@ -172,7 +172,7 @@ class SimpleStreamManager {
           
           // 视频比例变更，停止旧进程并启动新进程
           await this.stopFFmpegProcess(channelId);
-          return await this.startNewStream(channelId, rtmpUrl);
+          return await this.startNewStream(channelId, rtmpUrl, videoFilter);
         }
         
         logger.debug('Channel already active, returning existing stream', { channelId });
@@ -180,7 +180,7 @@ class SimpleStreamManager {
       }
       
       // 频道未在处理，启动新的FFmpeg进程
-      return await this.startNewStream(channelId, rtmpUrl);
+      return await this.startNewStream(channelId, rtmpUrl, videoFilter);
       
     } catch (error) {
       logger.error('Failed to start watching', { channelId, rtmpUrl, error: error.message });
@@ -192,21 +192,22 @@ class SimpleStreamManager {
    * 启动新的转码进程
    * @param {string} channelId - 频道ID
    * @param {string} rtmpUrl - RTMP源地址
+   * @param {string|null} videoFilter - 视频滤镜
    * @returns {string} HLS播放地址
    */
-  async startNewStream(channelId, rtmpUrl) {
+  async startNewStream(channelId, rtmpUrl, videoFilter = null) {
     const processInfo = {
       channelId: channelId,
       rtmpUrl: rtmpUrl,
       hlsUrl: `${this.vpsBaseDomain}/hls/${channelId}/playlist.m3u8`,
       startTime: Date.now(),
       process: null,
-      videoFilter: this.videoFilter  // 🆕 保存当前滤镜
+      videoFilter: videoFilter  // 🆕 保存当前滤镜
     };
     
     try {
       // 启动FFmpeg进程
-      processInfo.process = await this.spawnFFmpegProcess(channelId, rtmpUrl);
+      processInfo.process = await this.spawnFFmpegProcess(channelId, rtmpUrl, videoFilter);
       
       // 保存进程信息
       this.activeStreams.set(channelId, processInfo);
@@ -363,9 +364,10 @@ class SimpleStreamManager {
    * 启动FFmpeg进程
    * @param {string} channelId - 频道ID
    * @param {string} rtmpUrl - RTMP源地址
+   * @param {string|null} videoFilter - 视频滤镜
    * @returns {Object} FFmpeg进程对象
    */
-  async spawnFFmpegProcess(channelId, rtmpUrl) {
+  async spawnFFmpegProcess(channelId, rtmpUrl, videoFilter = null) {
     // 创建输出目录
     const outputDir = path.join(this.hlsOutputDir, channelId);
     if (!fs.existsSync(outputDir)) {
@@ -386,7 +388,7 @@ class SimpleStreamManager {
       '-an',  // 不处理音频流
 
       // 🆕 根据配置动态添加滤镜
-      ...(this.videoFilter ? ['-vf', this.videoFilter] : []),
+      ...(videoFilter ? ['-vf', videoFilter] : []),
 
       // 🔥 HLS输出 - 简化配置
       '-f', 'hls',
@@ -814,6 +816,30 @@ class SimpleStreamManager {
     try {
       logger.info('Enabling recording', { channelId, recordConfig });
       
+      // 🆕 获取频道配置（包含videoAspectRatio）
+      let channelConfig = null;
+      try {
+        const axios = require('axios');
+        const config = require('../../config');
+        const configUrl = `${config.workersApiUrl}/api/channel/${channelId}/config`;
+        const response = await axios.get(configUrl, { timeout: 3000 });
+        if (response.data.status === 'success') {
+          channelConfig = response.data.data;
+          logger.info('Fetched channel config for recording', { 
+            channelId, 
+            videoAspectRatio: channelConfig.videoAspectRatio 
+          });
+        }
+      } catch (error) {
+        logger.warn('Failed to fetch channel config for recording, using defaults', { 
+          channelId, 
+          error: error.message 
+        });
+      }
+      
+      // 生成视频滤镜
+      const videoFilter = this.getVideoFilter(channelConfig);
+      
       // 检查是否已经在录制中
       const existing = this.activeStreams.get(channelId);
       if (existing && existing.isRecording) {
@@ -845,11 +871,11 @@ class SimpleStreamManager {
         // 已有进程但未录制，需要重启以添加录制输出
         logger.info('Restarting stream with recording', { channelId });
         await this.stopFFmpegProcess(channelId);
-        await this.startStreamWithRecording(channelId, existing.rtmpUrl, configWithSession);
+        await this.startStreamWithRecording(channelId, existing.rtmpUrl, configWithSession, videoFilter);
       } else {
         // 无进程，启动新进程（包含录制）
         const rtmpUrl = recordConfig.rtmpUrl || await this.fetchChannelRtmpUrl(channelId);
-        await this.startStreamWithRecording(channelId, rtmpUrl, configWithSession);
+        await this.startStreamWithRecording(channelId, rtmpUrl, configWithSession, videoFilter);
       }
       
       return {
@@ -923,8 +949,9 @@ class SimpleStreamManager {
    * @param {string} channelId - 频道ID
    * @param {string} rtmpUrl - RTMP源地址
    * @param {Object} recordConfig - 录制配置
+   * @param {string|null} videoFilter - 视频滤镜
    */
-  async startStreamWithRecording(channelId, rtmpUrl, recordConfig) {
+  async startStreamWithRecording(channelId, rtmpUrl, recordConfig, videoFilter = null) {
     const recordingPath = this.generateRecordingPath(channelId, recordConfig.channelName, recordConfig);
     
     const processInfo = {
@@ -934,12 +961,13 @@ class SimpleStreamManager {
       startTime: Date.now(),
       process: null,
       isRecording: true,
-      recordingPath: recordingPath
+      recordingPath: recordingPath,
+      videoFilter: videoFilter  // 🆕 保存视频滤镜
     };
     
     try {
       // 启动FFmpeg进程（包含录制）🆕 传递完整配置
-      processInfo.process = await this.spawnFFmpegWithRecording(channelId, rtmpUrl, recordingPath, recordConfig);
+      processInfo.process = await this.spawnFFmpegWithRecording(channelId, rtmpUrl, recordingPath, recordConfig, videoFilter);
       
       // 保存进程信息
       this.activeStreams.set(channelId, processInfo);
@@ -966,8 +994,9 @@ class SimpleStreamManager {
    * @param {string} rtmpUrl - RTMP源地址
    * @param {string} recordingPath - 录制文件路径
    * @param {Object} recordConfig - 录制配置（含分段设置）🆕
+   * @param {string|null} videoFilter - 视频滤镜
    */
-  async spawnFFmpegWithRecording(channelId, rtmpUrl, recordingPath, recordConfig) {
+  async spawnFFmpegWithRecording(channelId, rtmpUrl, recordingPath, recordConfig, videoFilter = null) {
     const outputDir = path.join(this.hlsOutputDir, channelId);
     const recordDir = path.dirname(recordingPath);
     
@@ -985,10 +1014,10 @@ class SimpleStreamManager {
     ];
     
     // 🆕 根据是否有滤镜决定使用不同的策略
-    if (this.videoFilter) {
+    if (videoFilter) {
       // 有滤镜：使用filter_complex
       ffmpegArgs.push(
-        '-filter_complex', `[0:v]${this.videoFilter},split=2[vout1][vout2]`,
+        '-filter_complex', `[0:v]${videoFilter},split=2[vout1][vout2]`,
       
         // HLS输出 - 使用第一路视频流
         '-map', '[vout1]',
