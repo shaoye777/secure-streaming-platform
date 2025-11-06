@@ -456,7 +456,20 @@ class RecordScheduler {
           });
           await this.startRecording(config);
         } else if (isCurrentlyRecording) {
-          logger.info('Already recording, keeping current state', { channelId });
+          // 🎯 检查当前时间是否还在新的时间范围内
+          if (await this.shouldRecordNow(config)) {
+            logger.info('Already recording and in new time range, keeping state', { channelId });
+          } else {
+            // 当前时间不在新范围内，立即停止录制
+            logger.info('Out of new recording range, stopping recording', { 
+              channelId,
+              reason: 'time range updated, current time out of range',
+              startTime: config.startTime,
+              endTime: config.endTime,
+              currentTime: moment().tz('Asia/Shanghai').format('HH:mm')
+            });
+            await this.streamManager.disableRecording(channelId);
+          }
         } else {
           logger.info('Not in recording time range, scheduling only', { channelId });
         }

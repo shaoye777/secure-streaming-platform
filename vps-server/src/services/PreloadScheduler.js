@@ -390,23 +390,46 @@ class PreloadScheduler {
         return;
       }
       
-      // 3. 检查是否应该立即启动预加载
+      // 3. 检查当前预加载状态
+      const isCurrentlyPreloading = this.streamManager.preloadChannels.has(channelId);
       const currentTime = this.getBeijingTime().format('HH:mm');
-      if (await this.shouldPreloadNow(config, currentTime)) {
-        logger.info('Starting immediate preload based on config', { 
-          channelId, 
-          currentTime,
-          startTime: config.startTime,
-          endTime: config.endTime
-        });
-        
-        // 构造完整配置对象（包含channelId等）
-        const fullConfig = {
-          channelId,
-          ...config
-        };
-        
-        await this.startPreload(fullConfig);
+      
+      if (isCurrentlyPreloading) {
+        // 如果正在预加载，检查是否还在新的时间范围内
+        if (await this.shouldPreloadNow(config, currentTime)) {
+          logger.info('Already preloading and in new time range, keeping state', { 
+            channelId, 
+            currentTime 
+          });
+        } else {
+          // 不在新范围内，停止预加载
+          logger.info('Out of new preload range, stopping preload', { 
+            channelId,
+            currentTime,
+            startTime: config.startTime,
+            endTime: config.endTime,
+            reason: 'time range updated, current time out of range'
+          });
+          await this.stopPreload(channelId);
+        }
+      } else {
+        // 如果未预加载，检查是否应该立即启动
+        if (await this.shouldPreloadNow(config, currentTime)) {
+          logger.info('Starting immediate preload based on config', { 
+            channelId, 
+            currentTime,
+            startTime: config.startTime,
+            endTime: config.endTime
+          });
+          
+          // 构造完整配置对象（包含channelId等）
+          const fullConfig = {
+            channelId,
+            ...config
+          };
+          
+          await this.startPreload(fullConfig);
+        }
       }
       
       // 4. 设置新的定时任务
