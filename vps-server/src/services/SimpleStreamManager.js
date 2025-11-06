@@ -340,6 +340,13 @@ class SimpleStreamManager {
     const processInfo = this.activeStreams.get(channelId);
     if (!processInfo || !processInfo.process) return;
     
+    // ✅ 如果进程正在录制，清理录制标记
+    if (processInfo.isRecording) {
+      logger.info('Cleaning up recording markers on process stop', { channelId });
+      this.recordingChannels.delete(channelId);
+      this.recordingConfigs.delete(channelId);
+    }
+    
     return new Promise((resolve) => {
       processInfo.process.on('exit', () => {
         logger.debug('FFmpeg process exited', { channelId });
@@ -865,7 +872,7 @@ class SimpleStreamManager {
         sessionStartTime: Date.now()  // 🆕 记录会话开始时间
       };
       this.recordingConfigs.set(channelId, configWithSession);
-      this.recordingChannels.add(channelId);
+      // ❌ 不在这里手动添加标记，startStreamWithRecording会自动添加
       
       if (existing) {
         // 已有进程但未录制，需要重启以添加录制输出
@@ -902,53 +909,60 @@ class SimpleStreamManager {
       const existing = this.activeStreams.get(channelId);
       const oldRecordingPath = existing?.recordingPath;
       
-      // 🐛 修复：先获取配置，再删除（重命名需要用到配置）
+      // 先获取配置（重命名文件需要）
       const recordConfig = this.recordingConfigs.get(channelId);
       
-      // ✅ 无论进程状态如何，都要移除录制标记
-      this.recordingChannels.delete(channelId);
-      this.recordingConfigs.delete(channelId);
-      logger.info('Recording markers cleared', { 
-        channelId,
-        hadConfig: !!recordConfig,
-        hadStream: !!existing
-      });
+      // 如果没有进程，手动清理标记后返回
+      if (!existing) {
+        logger.info('No process found, cleaning up markers if any', { channelId });
+        this.recordingChannels.delete(channelId);
+        this.recordingConfigs.delete(channelId);
+        return {
+          status: 'success',
+          message: 'Recording disabled (no process)',
+          data: { channelId }
+        };
+      }
       
-      // 🔧 修复：即使进程已停止，也要处理（防止状态不一致）
-      if (existing) {
-        const hasViewers = this.channelHeartbeats.has(channelId);
-        const isPreload = this.preloadChannels.has(channelId);
-        
-        // 如果进程还在录制，重命名文件
-        if (existing.isRecording) {
-          logger.info('Process is recording, renaming files', { channelId });
-          
-          // 🆕 录制结束前重命名文件
-          if (recordConfig && recordConfig.segmentEnabled) {
-            // 分段模式：只重命名最后一个分段（其他已在录制过程中重命名）
-            await this.renameFinalSegment(channelId, recordConfig);
-          } else if (oldRecordingPath) {
-            // 单文件模式：重命名为实际结束时间
-            await this.renameRecordingWithActualEndTime(oldRecordingPath);
-          }
-          
-          if (hasViewers || isPreload) {
-            // 有观看者或预加载，重启进程移除录制
-            logger.info('Restarting stream without recording', { channelId });
-            await this.stopFFmpegProcess(channelId);
-            await this.startWatching(channelId, existing.rtmpUrl);
-          } else {
-            // 无观看者和预加载，直接停止
-            logger.info('No viewers or preload, stopping channel', { channelId });
-            await this.stopChannel(channelId);
-          }
-        } else {
-          // 进程已不在录制状态，只需清理标记（已在上面完成）
-          logger.info('Process not recording, markers already cleared', { channelId });
-        }
+      // 如果进程不在录制，手动清理标记后返回
+      if (!existing.isRecording) {
+        logger.info('Process not recording, cleaning up markers if any', { channelId });
+        this.recordingChannels.delete(channelId);
+        this.recordingConfigs.delete(channelId);
+        return {
+          status: 'success',
+          message: 'Recording disabled (process not recording)',
+          data: { channelId }
+        };
+      }
+      
+      // 进程正在录制，先重命名文件
+      logger.info('Process is recording, renaming files before stop', { channelId });
+      if (recordConfig && recordConfig.segmentEnabled) {
+        // 分段模式：只重命名最后一个分段
+        await this.renameFinalSegment(channelId, recordConfig);
+      } else if (oldRecordingPath) {
+        // 单文件模式：重命名为实际结束时间
+        await this.renameRecordingWithActualEndTime(oldRecordingPath);
+      }
+      
+      // 判断是否需要保留转码
+      const hasViewers = this.channelHeartbeats.has(channelId);
+      const isPreload = this.preloadChannels.has(channelId);
+      
+      if (hasViewers || isPreload) {
+        // 有观看者或预加载，重启进程移除录制
+        logger.info('Restarting stream without recording', { 
+          channelId,
+          hasViewers,
+          isPreload 
+        });
+        await this.stopFFmpegProcess(channelId);  // ✅ 自动清理录制标记
+        await this.startWatching(channelId, existing.rtmpUrl);
       } else {
-        // 进程已不存在，只需清理标记（已在上面完成）
-        logger.info('Process not found, markers already cleared', { channelId });
+        // 无观看者和预加载，直接停止
+        logger.info('No viewers or preload, stopping channel', { channelId });
+        await this.stopChannel(channelId);  // ✅ 内部调用stopFFmpegProcess，自动清理标记
       }
       
       return {
@@ -989,6 +1003,9 @@ class SimpleStreamManager {
       
       // 保存进程信息
       this.activeStreams.set(channelId, processInfo);
+      
+      // ✅ 添加录制标记（与进程状态绑定）
+      this.recordingChannels.add(channelId);
       
       // 设置心跳
       this.channelHeartbeats.set(channelId, Date.now());
