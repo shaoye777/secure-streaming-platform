@@ -742,10 +742,26 @@ class SimpleStreamManager {
       // 从预加载集合中移除
       this.preloadChannels.delete(channelId);
       
-      // 停止转码
-      await this.stopChannel(channelId);
+      // ✅ 检查是否还在录制（对称处理，与disableRecording一致）
+      const isRecording = this.recordingChannels.has(channelId);
+      const hasViewers = this.channelHeartbeats.has(channelId);
       
-      // 移除心跳记录
+      if (isRecording) {
+        // 还在录制，保留进程
+        logger.info('Preload stopped but recording is active, keeping process', { 
+          channelId,
+          hasViewers
+        });
+      } else if (hasViewers) {
+        // 有观看者但不录制，保留进程（普通HLS）
+        logger.info('Preload stopped but has viewers, keeping process', { channelId });
+      } else {
+        // 既不录制也无观看者，停止进程
+        logger.info('No recording or viewers, stopping channel', { channelId });
+        await this.stopChannel(channelId);
+      }
+      
+      // 移除心跳记录（预加载停止后不再需要）
       this.channelHeartbeats.delete(channelId);
       
       logger.info('Preload stopped successfully', { channelId });
