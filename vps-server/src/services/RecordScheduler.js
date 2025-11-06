@@ -436,6 +436,8 @@ class RecordScheduler {
       const isCurrentlyRecording = recordingStatus.channels.some(
         ch => ch.channelId === channelId && ch.isRecording
       );
+      // ✅ 同时检查是否有录制标记（进程可能已停止但标记未清理）
+      const hasRecordingMarker = this.streamManager.recordingChannels.has(channelId);
       
       // 2. 停止该频道现有的定时任务
       this.unscheduleChannel(channelId);
@@ -481,10 +483,12 @@ class RecordScheduler {
         // 3.2 配置禁用录制
         logger.info('Config disabled, stopping recording if active', { 
           channelId,
-          isCurrentlyRecording 
+          isCurrentlyRecording,
+          hasRecordingMarker
         });
         
-        if (isCurrentlyRecording) {
+        // ✅ 修改判断条件：进程在录制 或 有录制标记都需要调用disableRecording
+        if (isCurrentlyRecording || hasRecordingMarker) {
           try {
             await this.streamManager.disableRecording(channelId);
             logger.info('Recording stopped for disabled config', { channelId });
