@@ -122,10 +122,18 @@ try {
 
 // 使用新的简化流管理API（向后兼容）
 let streamManager = null;
+let preloadScheduler = null;  // 🆕 保存到外部作用域，供服务器启动回调使用
+let preloadHealthCheck = null;
+let recordScheduler = null;
+
 try {
-  const { router: simpleStreamRoutes, preloadScheduler, streamManager: sm } = require('./routes/simple-stream');
-  streamManager = sm;
-  app.use('/api/simple-stream', simpleStreamRoutes);
+  const simpleStreamModule = require('./routes/simple-stream');
+  streamManager = simpleStreamModule.streamManager;
+  preloadScheduler = simpleStreamModule.preloadScheduler;
+  preloadHealthCheck = simpleStreamModule.preloadHealthCheck;
+  recordScheduler = simpleStreamModule.recordScheduler;
+  
+  app.use('/api/simple-stream', simpleStreamModule.router);
   
   // 🆕 将workdayChecker注册到app，供其他路由访问
   if (preloadScheduler && preloadScheduler.workdayChecker) {
@@ -348,11 +356,45 @@ process.on('unhandledRejection', (reason, promise) => {
 
 // 启动服务器
 if (require.main === module) {
-    app.listen(PORT, '0.0.0.0', () => {
+    app.listen(PORT, '0.0.0.0', async () => {
         logger.info(`🚀 VPS Transcoder API Server is running on port ${PORT}`);
         logger.info(`📊 Environment: ${NODE_ENV}`);
         logger.info(`📁 HLS Output Directory: ${hlsDir}`);
         logger.info(`🔐 API Security: ${process.env.ENABLE_IP_WHITELIST === 'true' ? 'Enabled' : 'Disabled'}`);
+        
+        // 🆕 启动PreloadScheduler（在服务器启动后，确保单次执行）
+        if (preloadScheduler) {
+          try {
+            logger.info('🔄 Starting PreloadScheduler...');
+            await preloadScheduler.start();
+            logger.info('✅ PreloadScheduler started successfully');
+            
+            // 启动健康检查
+            if (preloadHealthCheck) {
+              preloadHealthCheck.start();
+              logger.info('✅ PreloadHealthCheck started successfully');
+            }
+          } catch (error) {
+            logger.error('❌ Failed to start PreloadScheduler', { 
+              error: error.message,
+              stack: error.stack 
+            });
+          }
+        }
+        
+        // 🆕 启动RecordScheduler
+        if (recordScheduler) {
+          try {
+            logger.info('🔄 Starting RecordScheduler...');
+            await recordScheduler.start();
+            logger.info('✅ RecordScheduler started successfully');
+          } catch (error) {
+            logger.error('❌ Failed to start RecordScheduler', { 
+              error: error.message,
+              stack: error.stack 
+            });
+          }
+        }
         
         // 🆕 服务启动后初始化Recovery Service
         if (RecordingRecoveryService && streamManager) {

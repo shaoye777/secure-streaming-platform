@@ -183,16 +183,38 @@ async function updatePreloadConfig(env, channelId, data, username) {
     // 🆕 保存更新后的频道配置
     await env.YOYO_USER_DB.put(channelKey, JSON.stringify(channelData));
     
-    // 🔧 异步通知VPS重新加载调度器（不等待响应，避免死锁）
-    notifyVpsReload(env).catch(error => {
-      console.error('VPS reload notification failed (non-blocking):', error.message);
-    });
+    // 🔧 同步通知VPS重载调度，直接传递最新配置（复用录制功能的成功模式）
+    let vpsNotifyResult = null;
+    try {
+      // 构造完整配置对象传递给VPS
+      const fullConfig = {
+        channelId,
+        channelName: channelData.name || channelId,
+        rtmpUrl: channelData.rtmpUrl || '',
+        ...preloadConfig
+      };
+      console.log('📞 [updatePreloadConfig] Notifying VPS...', { fullConfig });
+      vpsNotifyResult = await notifyVpsReload(env, channelId, fullConfig);
+      console.log('✅ [updatePreloadConfig] VPS notification successful', { result: vpsNotifyResult });
+    } catch (error) {
+      console.error('⚠️ [updatePreloadConfig] VPS notification failed (config saved)', { 
+        channelId, 
+        error: error.message,
+        stack: error.stack
+      });
+      vpsNotifyResult = { error: error.message };
+      // 即使通知失败，配置也已保存，VPS定时重载会生效
+    }
     
     return {
       status: 'success',
       data: {
         channelId,
         ...preloadConfig
+      },
+      debug: {
+        vpsNotified: vpsNotifyResult?.success || false,
+        vpsError: vpsNotifyResult?.error || null
       }
     };
   } catch (error) {
@@ -260,22 +282,47 @@ async function getWorkdayStatus(env) {
 
 /**
  * 通知VPS重新加载调度器
+ * @param {Object} env - 环境变量
+ * @param {string} channelId - 频道ID
+ * @param {Object} config - 可选：直接传递最新配置，避免KV延迟
+ * @returns {Promise<{success: boolean, error?: string}>}
  */
-async function notifyVpsReload(env) {
-  const vpsUrl = `${env.VPS_API_URL}/api/simple-stream/preload/reload-schedule`;
-  const response = await fetch(vpsUrl, {
-    method: 'POST',
-    headers: {
-      'X-API-Key': env.VPS_API_KEY,
-      'Content-Type': 'application/json'
+async function notifyVpsReload(env, channelId, config = null) {
+  try {
+    console.log('🔔 正在通知VPS重载预加载调度...', { 
+      url: env.VPS_API_URL, 
+      channelId,
+      hasConfig: !!config,
+      configEnabled: config?.enabled
+    });
+    
+    // 🔧 传递配置到VPS，避免KV最终一致性问题
+    const response = await fetch(`${env.VPS_API_URL}/api/simple-stream/preload/reload-schedule`, {
+      method: 'POST',
+      headers: {
+        'X-API-Key': env.VPS_API_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        channelId,
+        config  // 🆕 传递配置
+      })
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('VPS response failed:', {
+        status: response.status,
+        errorText
+      });
+      throw new Error(`VPS responded with ${response.status}`);
     }
-  });
-  
-  if (!response.ok) {
-    throw new Error(`VPS reload API responded with status ${response.status}`);
+    
+    return { success: true };
+  } catch (error) {
+    console.error('VPS notification error:', error);
+    throw error;
   }
-  
-  return await response.json();
 }
 
 /**

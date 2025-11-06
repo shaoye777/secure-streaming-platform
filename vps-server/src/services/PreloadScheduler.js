@@ -369,6 +369,68 @@ class PreloadScheduler {
   }
 
   /**
+   * 重新加载单个频道的调度（使用直接传递的配置）
+   * @param {string} channelId - 频道ID
+   * @param {Object} config - 预加载配置
+   */
+  async reloadScheduleWithConfig(channelId, config) {
+    try {
+      logger.info('Reloading single channel preload schedule with direct config', { 
+        channelId, 
+        config 
+      });
+      
+      // 1. 取消该频道的旧任务
+      this.unscheduleChannel(channelId);
+      
+      // 2. 如果配置禁用，停止预加载并返回
+      if (!config.enabled) {
+        logger.info('Preload disabled for channel, stopping if active', { channelId });
+        await this.stopPreload(channelId);
+        return;
+      }
+      
+      // 3. 检查是否应该立即启动预加载
+      const currentTime = this.getBeijingTime().format('HH:mm');
+      if (await this.shouldPreloadNow(config, currentTime)) {
+        logger.info('Starting immediate preload based on config', { 
+          channelId, 
+          currentTime,
+          startTime: config.startTime,
+          endTime: config.endTime
+        });
+        
+        // 构造完整配置对象（包含channelId等）
+        const fullConfig = {
+          channelId,
+          ...config
+        };
+        
+        await this.startPreload(fullConfig);
+      }
+      
+      // 4. 设置新的定时任务
+      this.scheduleChannel({
+        channelId,
+        ...config
+      });
+      
+      logger.info('Single channel preload schedule reloaded successfully', { 
+        channelId,
+        enabled: config.enabled,
+        startTime: config.startTime,
+        endTime: config.endTime
+      });
+    } catch (error) {
+      logger.error('Failed to reload single channel preload schedule', { 
+        channelId, 
+        error: error.message 
+      });
+      throw error;
+    }
+  }
+
+  /**
    * 停止所有定时任务
    */
   stopAllTasks() {

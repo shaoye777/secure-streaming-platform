@@ -24,30 +24,8 @@ const preloadHealthCheck = new PreloadHealthCheck(streamManager, preloadSchedule
 // 🆕 创建录制调度器实例
 const recordScheduler = new RecordScheduler(streamManager);
 
-// 🆕 延迟5秒启动调度器（等待服务器完全启动）
-setTimeout(() => {
-  // 启动预加载调度器
-  preloadScheduler.start()
-    .then(() => {
-      logger.info('✅ PreloadScheduler started successfully');
-      
-      // 启动健康检查
-      preloadHealthCheck.start();
-      logger.info('✅ PreloadHealthCheck started successfully');
-    })
-    .catch((error) => {
-      logger.error('Failed to start PreloadScheduler', { error: error.message });
-    });
-  
-  // 启动录制调度器
-  recordScheduler.start()
-    .then(() => {
-      logger.info('✅ RecordScheduler started successfully');
-    })
-    .catch((error) => {
-      logger.error('Failed to start RecordScheduler', { error: error.message });
-    });
-}, 5000);
+// ⚠️ 调度器启动逻辑已移至 app.js 的服务器启动回调中
+// 这样可以确保在服务器完全启动后才启动调度器，避免PM2 Cluster模式下的时序问题
 
 /**
  * 开始观看频道 - 要求完整参数：channelId和rtmpUrl
@@ -322,20 +300,37 @@ router.get('/preload/vps-status', (req, res) => {
 /**
  * 重新加载预加载调度器（配置变更时调用）
  * POST /api/preload/reload-schedule
+ * Body: { channelId, config } - config为可选，直接传递避免KV读取延迟
  */
 router.post('/preload/reload-schedule', async (req, res) => {
   try {
-    logger.info('Reloading preload scheduler...');
+    const { channelId, config } = req.body;
     
-    await preloadScheduler.reload();
+    logger.info('Reloading preload scheduler...', { 
+      channelId, 
+      hasDirectConfig: !!config,
+      configEnabled: config?.enabled 
+    });
+    
+    // 🔧 支持直接传递配置，避免KV最终一致性问题（复用录制功能的成功模式）
+    if (config) {
+      // 使用Workers直接传递的配置（最新的、准确的）
+      await preloadScheduler.reloadScheduleWithConfig(channelId, config);
+    } else {
+      // 兼容旧方式：从Workers API重新读取所有配置
+      await preloadScheduler.reload();
+    }
     
     res.json({
       status: 'success',
-      message: 'Schedule reloaded successfully',
-      timestamp: new Date().toISOString()
+      message: 'Preload schedule reloaded successfully',
+      timestamp: new Date().toISOString(),
+      debug: {
+        usedDirectConfig: !!config
+      }
     });
   } catch (error) {
-    logger.error('Failed to reload schedule', { error: error.message });
+    logger.error('Failed to reload preload schedule', { error: error.message });
     res.status(500).json({
       status: 'error',
       message: error.message
@@ -412,4 +407,10 @@ router.get('/record/status', (req, res) => {
 });
 
 // 导出路由和管理器实例
-module.exports = { router, streamManager, preloadScheduler, recordScheduler };
+module.exports = { 
+  router, 
+  streamManager, 
+  preloadScheduler, 
+  preloadHealthCheck,  // 🆕 导出healthCheck供app.js使用
+  recordScheduler 
+};
