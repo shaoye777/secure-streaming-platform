@@ -96,7 +96,7 @@
 
       <!-- 缩放提示 -->
       <transition name="fade">
-        <div v-if="(scale > 1 || videoRotation !== 0) && showControls" class="zoom-hint">
+        <div v-if="(scale > 1 || videoRotation !== 0) && (videoRotation === 0 || showControls)" class="zoom-hint">
           <div class="zoom-info">
             <span>缩放: {{ Math.round(scale * 100) }}%</span>
             <span v-if="videoRotation !== 0">| 旋转: {{ videoRotation }}°</span>
@@ -125,7 +125,7 @@
       <teleport to="body">
         <transition name="fade">
           <button 
-            v-if="isCustomFullscreen && showControls"
+            v-if="isCustomFullscreen && (videoRotation === 0 || showControls)"
             class="exit-fullscreen-fixed"
             @touchstart.stop
             @touchend.stop.prevent="toggleCustomFullscreen"
@@ -141,7 +141,7 @@
         <!-- 画面旋转按钮 -->
         <transition name="fade">
           <button 
-            v-if="isCustomFullscreen && showControls"
+            v-if="isCustomFullscreen && (videoRotation === 0 || showControls)"
             class="rotate-btn-fixed"
             @touchstart.stop
             @touchend.stop.prevent="toggleRotation"
@@ -150,7 +150,7 @@
           >
             <svg viewBox="0 0 1024 1024" width="24" height="24" fill="currentColor" aria-hidden="true">
               <path d="M512 64C264.6 64 64 264.6 64 512s200.6 448 448 448 448-200.6 448-448S759.4 64 512 64zm0 820c-205.4 0-372-166.6-372-372s166.6-372 372-372 372 166.6 372 372-166.6 372-372 372z"/>
-              <path d="M512 140c-205.4 0-372 166.6-372 372s166.6 372 372 372 372-166.6 372-372-166.6-372-372-372zm0 684c-172.3 0-312-139.7-312-312s139.7-312 312-312 312 139.7 312 312-139.7 312-312 312z"/>
+              <path d="M512 140c-205.4 0-372 166.6-372 372s166.6 372 372 372 372-166.6 372-372-366.6-372-372-372zm0 684c-172.3 0-312-139.7-312-312s139.7-312 312-312 312 139.7 312 312-139.7 312-312 312z"/>
               <path d="M512 354L387 479l48 48 77-77v170h68V450l77 77 48-48z"/>
             </svg>
           </button>
@@ -1408,7 +1408,7 @@ const handleMouseLeave = () => {
   }
 }
 
-// 处理视频点击事件 - 切换控制条显示
+// 处理视频点击事件 - 切换控制条显示（仅旋转模式下）
 const handleVideoClick = (event) => {
   // 强制阻止默认的点击暂停行为
   event.preventDefault()
@@ -1420,8 +1420,8 @@ const handleVideoClick = (event) => {
     videoRef.value.play()
   }
   
-  // 在自定义全屏模式下，切换控制条显示
-  if (isCustomFullscreen.value) {
+  // 在自定义全屏且旋转模式下，切换控制条显示
+  if (isCustomFullscreen.value && videoRotation.value !== 0) {
     toggleControlsVisibility()
   }
   
@@ -1450,10 +1450,10 @@ const resetHideControlsTimer = () => {
   }, 3000) // 3秒后自动隐藏
 }
 
-// 处理wrapper点击 - 延迟处理以区分双击
+// 处理wrapper点击 - 延迟处理以区分双击（仅在旋转模式下切换控制条）
 const handleWrapperClick = (event) => {
-  // 如果不在全屏模式，不处理
-  if (!isCustomFullscreen.value) {
+  // 如果不在全屏模式或未旋转，不处理
+  if (!isCustomFullscreen.value || videoRotation.value === 0) {
     return
   }
   
