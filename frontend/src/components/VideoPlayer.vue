@@ -1009,26 +1009,20 @@ const toggleRotation = () => {
           displayW = wrapperH * videoAspect
         }
         
-        // 旋转后，displayW和displayH互换
-        // 旋转后包围盒：displayH × displayW
-        // 要填充container(container.width × container.height)
-        const scaleX = container.width / displayH
-        const scaleY = container.height / displayW
-        const autoScale = Math.max(scaleX, scaleY)
-        
-        scale.value = autoScale
+        // 旋转后直接使用100%，画面稍微上移以优化视觉效果
+        scale.value = 1.0
         translateX.value = 0
-        translateY.value = 0
+        // 根据容器高度计算合适的上移距离（约5-8%）
+        translateY.value = -container.height * 0.06
         
-        console.log('[VideoPlayer] 旋转90度: 自动计算scale')
+        console.log('[VideoPlayer] 旋转90度')
         console.log({
           videoSize: `${videoW}×${videoH}`,
           wrapperSize: `${Math.round(wrapperW)}×${Math.round(wrapperH)}`,
           displaySize: `${Math.round(displayW)}×${Math.round(displayH)}`,
-          rotatedBox: `${Math.round(displayH)}×${Math.round(displayW)}`,
           containerSize: `${Math.round(container.width)}×${Math.round(container.height)}`,
-          scale: autoScale.toFixed(3),
-          percentage: `${Math.round(autoScale * 100)}%`
+          scale: '1.0 (100%)',
+          translateY: Math.round(translateY.value) + 'px'
         })
       }, 100)
     })
