@@ -22,6 +22,11 @@
       @touchend="handleTouchEnd"
       @wheel="handleWheel"
     >
+      <!-- 不参与transform的UI层，确保按钮点击优先级 -->
+      <div class="ui-layer">
+        <!-- 保留，当前按钮都在容器根上渲染 -->
+      </div>
+
       <div 
         class="video-wrapper"
         :style="videoTransformStyle"
@@ -97,7 +102,9 @@
       <button 
         v-if="!isCustomFullscreen"
         class="custom-fullscreen-btn"
-        @click="toggleCustomFullscreen"
+        @touchstart.stop.prevent
+        @touchend.stop.prevent
+        @click.stop.prevent="toggleCustomFullscreen"
         title="全屏"
       >
         <svg viewBox="0 0 1024 1024" width="24" height="24" fill="currentColor">
@@ -105,29 +112,21 @@
         </svg>
       </button>
       
-      <!-- 退出全屏按钮 -->
-      <button 
-        v-if="isCustomFullscreen"
-        class="exit-fullscreen-btn"
-        @click="toggleCustomFullscreen"
-        title="退出全屏"
-      >
-        <svg viewBox="0 0 1024 1024" width="24" height="24" fill="currentColor">
-          <path d="M204.8 716.8m-51.2 0a51.2 51.2 0 1 0 102.4 0 51.2 51.2 0 1 0-102.4 0Z M204.8 307.2m-51.2 0a51.2 51.2 0 1 0 102.4 0 51.2 51.2 0 1 0-102.4 0Z M819.2 716.8m-51.2 0a51.2 51.2 0 1 0 102.4 0 51.2 51.2 0 1 0-102.4 0Z M819.2 307.2m-51.2 0a51.2 51.2 0 1 0 102.4 0 51.2 51.2 0 1 0-102.4 0Z"/>
-        </svg>
-      </button>
-
-      <!-- 退出全屏按钮（左上角，适配iOS安全区） -->
-      <button 
-        v-if="isCustomFullscreen"
-        class="exit-fullscreen-btn exit-left"
-        @click="toggleCustomFullscreen"
-        title="退出全屏"
-      >
-        <svg viewBox="0 0 1024 1024" width="24" height="24" fill="currentColor">
-          <path d="M563.2 512L844.8 230.4 793.6 179.2 512 460.8 230.4 179.2 179.2 230.4 460.8 512 179.2 793.6 230.4 844.8 512 563.2 793.6 844.8 844.8 793.6z"/>
-        </svg>
-      </button>
+      <!-- 视口层固定的退出按钮（始终在最顶层） -->
+      <teleport to="body">
+        <button 
+          v-if="isCustomFullscreen"
+          class="exit-fullscreen-fixed"
+          @touchstart.stop.prevent
+          @touchend.stop.prevent
+          @click.stop.prevent="toggleCustomFullscreen"
+          title="退出全屏"
+        >
+          <svg viewBox="0 0 1024 1024" width="24" height="24" fill="currentColor" aria-hidden="true">
+            <path d="M563.2 512L844.8 230.4 793.6 179.2 512 460.8 230.4 179.2 179.2 230.4 460.8 512 179.2 793.6 230.4 844.8 512 563.2 793.6 844.8 844.8 793.6z"/>
+          </svg>
+        </button>
+      </teleport>
     </div>
 
     <!-- 状态栏 - 在缩放时向下移动 -->
@@ -1500,7 +1499,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   transition: all 0.3s;
-  z-index: 100;
+  z-index: 10000; /* 高于一切缩放内容 */
   backdrop-filter: blur(4px);
 }
 
@@ -1516,19 +1515,38 @@ onUnmounted(() => {
   transform: scale(0.95);
 }
 
-.exit-fullscreen-btn {
-  top: 20px;
-  right: 20px;
-  bottom: auto;
+/* 视口层固定的退出按钮（右上角，适配安全区） */
+.exit-fullscreen-fixed {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top));
+  right: max(12px, env(safe-area-inset-right));
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2147483647; /* 最高层级 */
+  backdrop-filter: blur(4px);
+  pointer-events: auto;
+}
+.
+exit-fullscreen-fixed:active {
+  transform: scale(0.95);
 }
 
-/* 左上角退出按钮（适配iOS安全区） */
-.exit-fullscreen-btn.exit-left {
-  left: max(12px, env(safe-area-inset-left));
-  top: max(12px, env(safe-area-inset-top));
-  right: auto;
-  bottom: auto;
-  z-index: 101;
+/* UI层不参与缩放，以免被transform遮挡 */
+.ui-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 0; /* 仅占位，按钮已靠自身绝对定位 */
+  z-index: 9999;
+  pointer-events: none; /* 自身不接事件，按钮各自接收 */
 }
 
 /* 移除全屏状态下的触摸行为限制，让视频控件正常工作 */
