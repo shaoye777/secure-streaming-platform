@@ -288,10 +288,15 @@ const videoTransformStyle = computed(() => {
     transition: isDragging.value ? 'none' : 'transform 0.3s ease-out'
   }
   
-  // 旋转时，wrapper也要调整为100vh×100vw以匹配video
+  // 旋转时，wrapper调整为100vh×100vw并绝对居中
   if (videoRotation.value !== 0) {
     style.width = '100vh'
     style.height = '100vw'
+    style.position = 'absolute'
+    style.left = '50%'
+    style.top = '50%'
+    style.marginLeft = '-50vh'  // -width/2
+    style.marginTop = '-50vw'   // -height/2
   }
   
   return style
