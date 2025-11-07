@@ -162,4 +162,33 @@ const selectStream = (stream) => {
 .streams-container::-webkit-scrollbar {
   display: none;
 }
+
+/* 暗色模式支持 */
+@media (prefers-color-scheme: dark) {
+  .stream-item {
+    background-color: #2d2d2d;
+    border-bottom-color: #404040;
+  }
+
+  .stream-item:hover {
+    background-color: #3a3a3a;
+  }
+
+  .stream-item.active {
+    background-color: #1e3a5f;
+    border-left-color: #409eff;
+  }
+
+  .stream-icon {
+    color: #909399;
+  }
+
+  .stream-name {
+    color: #e4e7ed;
+  }
+
+  .stream-id {
+    color: #909399;
+  }
+}
 </style>
