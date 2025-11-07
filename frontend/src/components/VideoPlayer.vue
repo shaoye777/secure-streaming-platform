@@ -93,9 +93,10 @@
       </div>
 
       <!-- 缩放提示 -->
-      <div v-if="scale > 1" class="zoom-hint">
+      <div v-if="scale > 1 || videoRotation !== 0" class="zoom-hint">
         <div class="zoom-info">
           <span>缩放: {{ Math.round(scale * 100) }}%</span>
+          <span v-if="videoRotation !== 0">| 旋转: {{ videoRotation }}°</span>
           <span>| 单指拖拽</span>
           <span>| 双击重置</span>
           <span v-if="isCustomFullscreen">| 全屏缩放</span>
@@ -128,6 +129,22 @@
         >
           <svg viewBox="0 0 1024 1024" width="24" height="24" fill="currentColor" aria-hidden="true">
             <path d="M563.2 512L844.8 230.4 793.6 179.2 512 460.8 230.4 179.2 179.2 230.4 460.8 512 179.2 793.6 230.4 844.8 512 563.2 793.6 844.8 844.8 793.6z"/>
+          </svg>
+        </button>
+        
+        <!-- 画面旋转按钮 -->
+        <button 
+          v-if="isCustomFullscreen"
+          class="rotate-btn-fixed"
+          @touchstart.stop
+          @touchend.stop.prevent="toggleRotation"
+          @click.stop="toggleRotation"
+          :title="videoRotation === 0 ? '旋转90度' : '恢复方向'"
+        >
+          <svg viewBox="0 0 1024 1024" width="24" height="24" fill="currentColor" aria-hidden="true">
+            <path d="M512 64C264.6 64 64 264.6 64 512s200.6 448 448 448 448-200.6 448-448S759.4 64 512 64zm0 820c-205.4 0-372-166.6-372-372s166.6-372 372-372 372 166.6 372 372-166.6 372-372 372z"/>
+            <path d="M512 140c-205.4 0-372 166.6-372 372s166.6 372 372 372 372-166.6 372-372-166.6-372-372-372zm0 684c-172.3 0-312-139.7-312-312s139.7-312 312-312 312 139.7 312 312-139.7 312-312 312z"/>
+            <path d="M512 354L387 479l48 48 77-77v170h68V450l77 77 48-48z"/>
           </svg>
         </button>
       </teleport>
@@ -230,6 +247,8 @@ const isCustomFullscreen = ref(false)
 // 鼠标拖动状态（PC端）
 const isMouseDragging = ref(false)
 const lastMousePoint = ref({ x: 0, y: 0 })
+// 画面旋转状态（0度或90度）
+const videoRotation = ref(0)
 
 const statusType = computed(() => {
   switch (status.value) {
@@ -259,7 +278,7 @@ const backendPathText = computed(() => {
 // 视频变换样式
 const videoTransformStyle = computed(() => {
   return {
-    transform: `translate(${translateX.value}px, ${translateY.value}px) scale(${scale.value})`,
+    transform: `translate(${translateX.value}px, ${translateY.value}px) scale(${scale.value}) rotate(${videoRotation.value}deg)`,
     transformOrigin: 'center center',
     transition: isDragging.value ? 'none' : 'transform 0.3s ease-out'
   }
@@ -913,6 +932,8 @@ const toggleCustomFullscreen = () => {
     // 退出自定义全屏
     debugLog('[VideoPlayer] 退出自定义全屏，重置缩放')
     resetZoom()
+    // 重置旋转
+    videoRotation.value = 0
     // 解除iOS手势拦截
     removeIosGestureBlockers()
     
@@ -921,6 +942,12 @@ const toggleCustomFullscreen = () => {
       screen.orientation.unlock()
     }
   }
+}
+
+// 切换画面旋转
+const toggleRotation = () => {
+  videoRotation.value = videoRotation.value === 0 ? 90 : 0
+  debugLog('[VideoPlayer] 切换画面旋转:', videoRotation.value)
 }
 
 onMounted(() => {
@@ -1608,8 +1635,32 @@ onUnmounted(() => {
   backdrop-filter: blur(4px);
   pointer-events: auto;
 }
-.
-exit-fullscreen-fixed:active {
+
+.exit-fullscreen-fixed:active {
+  transform: scale(0.95);
+}
+
+/* 视口层固定的旋转按钮（右上角退出按钮左边） */
+.rotate-btn-fixed {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top));
+  right: max(72px, calc(env(safe-area-inset-right) + 60px)); /* 在退出按钮左边 */
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2147483647; /* 最高层级 */
+  backdrop-filter: blur(4px);
+  pointer-events: auto;
+  transition: all 0.3s;
+}
+
+.rotate-btn-fixed:active {
   transform: scale(0.95);
 }
 
