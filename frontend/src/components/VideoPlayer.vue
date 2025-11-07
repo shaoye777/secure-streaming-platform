@@ -998,29 +998,42 @@ const toggleRotation = () => {
         }
 
         if (container.width && container.height && videoW && videoH) {
+          // 判断视频是横向还是竖向
+          const isVideoLandscape = videoW > videoH
+          const isContainerPortrait = container.height > container.width
+          
           // 旋转90度后包围盒：(videoH*scale × videoW*scale)
-          // 要填满容器：videoH*scale >= containerW 且 videoW*scale >= containerH
+          // cover模式：取max确保两个维度都能覆盖容器
           const scaleForWidth = container.width / videoH
           const scaleForHeight = container.height / videoW
-          let autoScale = Math.max(scaleForWidth, scaleForHeight)
-          
-          // 特殊处理：如果计算结果太小(<1)，可能是获取到错误的尺寸
-          if (autoScale < 1 && (videoW > container.height || videoH > container.width)) {
-            // 横向视频旋转到竖向容器，应该用长边填满
-            autoScale = container.height / videoH
-            debugLog('[VideoPlayer] ⚠️ 检测到异常，使用长边适配')
-          }
+          const autoScale = Math.max(scaleForWidth, scaleForHeight)
           
           scale.value = autoScale
           translateX.value = 0
           translateY.value = 0
 
+          // 超详细日志，帮助用户定位问题
+          console.log('========== 旋转自动缩放详细日志 ==========')
+          console.log(`尝试次数: ${attempt} (延迟${delay}ms)`)
+          console.log(`视频方向: ${isVideoLandscape ? '横向📐' : '竖向📱'} (${videoW}×${videoH})`)
+          console.log(`容器方向: ${isContainerPortrait ? '竖向📱' : '横向📐'} (${container.width}×${container.height})`)
+          console.log(`计算公式:`)
+          console.log(`  scaleForWidth = ${container.width} / ${videoH} = ${scaleForWidth.toFixed(3)}`)
+          console.log(`  scaleForHeight = ${container.height} / ${videoW} = ${scaleForHeight.toFixed(3)}`)
+          console.log(`  autoScale = max(${scaleForWidth.toFixed(3)}, ${scaleForHeight.toFixed(3)}) = ${autoScale.toFixed(3)}`)
+          console.log(`最终结果: ${Math.round(autoScale * 100)}%`)
+          console.log(`旋转后包围盒: ${Math.round(videoH * autoScale)} × ${Math.round(videoW * autoScale)}`)
+          console.log(`是否填满: 宽${Math.round(videoH * autoScale) >= container.width ? '✅' : '❌'} 高${Math.round(videoW * autoScale) >= container.height ? '✅' : '❌'}`)
+          console.log('==========================================')
+          
           debugLog('[VideoPlayer] ✅ 旋转自动缩放完成:', {
             attempt,
             videoW,
             videoH,
+            videoOrientation: isVideoLandscape ? '横向' : '竖向',
             containerW: container.width,
             containerH: container.height,
+            containerOrientation: isContainerPortrait ? '竖向' : '横向',
             scaleForWidth: scaleForWidth.toFixed(3),
             scaleForHeight: scaleForHeight.toFixed(3),
             autoScale: autoScale.toFixed(3),
