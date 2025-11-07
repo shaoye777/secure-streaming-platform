@@ -251,6 +251,8 @@ const lastTouchCenter = ref({ x: 0, y: 0 })
 const touches = ref([])
 const isDragging = ref(false)
 const lastPanPoint = ref({ x: 0, y: 0 })
+// 用于检测点击（不改变拖动逻辑）
+const touchStartPosition = ref({ x: 0, y: 0, time: 0 })
 const isCustomFullscreen = ref(false)
 // 鼠标拖动状态（PC端）
 const isMouseDragging = ref(false)
@@ -1190,6 +1192,13 @@ const handleTouchStart = (event) => {
     lastTouchCenter.value = getTouchCenter(touches.value[0], touches.value[1])
     debugLog('双指缩放开始 - 平台:', deviceInfo.isIOS ? 'iOS' : deviceInfo.isAndroid ? 'Android' : 'PC')
   } else if (touches.value.length === 1) {
+    // 记录触摸起始位置（用于检测点击）
+    touchStartPosition.value = {
+      x: touches.value[0].clientX,
+      y: touches.value[0].clientY,
+      time: Date.now()
+    }
+    
     // 单指处理 - 根据平台和状态决定行为
     if (scale.value > 1) {
       // 已缩放状态下允许拖拽
@@ -1304,16 +1313,43 @@ const handleTouchMove = (event) => {
 }
 
 const handleTouchEnd = (event) => {
+  // 检测是否是点击（移动距离小且时间短）
+  const isTap = event.changedTouches.length > 0 && (() => {
+    const touch = event.changedTouches[0]
+    const deltaX = Math.abs(touch.clientX - touchStartPosition.value.x)
+    const deltaY = Math.abs(touch.clientY - touchStartPosition.value.y)
+    const deltaTime = Date.now() - touchStartPosition.value.time
+    const moveDistance = Math.sqrt(deltaX * deltaX + deltaY * deltaY)
+    
+    // 移动距离<15px 且 时间<300ms 认为是点击
+    return moveDistance < 15 && deltaTime < 300
+  })()
+  
   debugLog('触摸结束:', {
     touchCount: event.touches.length,
     isDragging: isDragging.value,
     scale: scale.value,
-    isCustomFullscreen: isCustomFullscreen.value
+    isCustomFullscreen: isCustomFullscreen.value,
+    isTap,
+    videoRotation: videoRotation.value
   })
   
   touches.value = Array.from(event.touches)
   
   if (event.touches.length === 0) {
+    // 如果是点击且在旋转+缩放模式，触发控制条切换
+    if (isTap && isCustomFullscreen.value && videoRotation.value !== 0 && scale.value > 1) {
+      debugLog('检测到点击（旋转+缩放模式），切换控制条')
+      // 取消之前的定时器
+      if (clickTimer) {
+        clearTimeout(clickTimer)
+      }
+      // 延迟200ms处理，以区分双击
+      clickTimer = setTimeout(() => {
+        toggleControlsVisibility()
+      }, 200)
+    }
+    
     isDragging.value = false
     debugLog('所有触摸结束，停止拖拽')
   }
