@@ -30,7 +30,7 @@
         <video 
           ref="videoRef"
           class="video-element"
-          controls
+          :controls="!isCustomFullscreen"
           autoplay
           muted
           playsinline
@@ -848,6 +848,33 @@ const getDeviceInfo = () => {
   return { isIOS, isAndroid, isSafari, isChrome, isMobile }
 }
 
+// iOS 手势拦截（防止捏合触发原生全屏）
+let gestureBlockersBound = false
+const addIosGestureBlockers = () => {
+  if (!containerRef.value || gestureBlockersBound) return
+  const el = containerRef.value
+  // 使用非被动监听，确保可以preventDefault
+  el.addEventListener('gesturestart', preventGesture, { passive: false })
+  el.addEventListener('gesturechange', preventGesture, { passive: false })
+  el.addEventListener('gestureend', preventGesture, { passive: false })
+  gestureBlockersBound = true
+  debugLog('[VideoPlayer] 已绑定iOS手势拦截')
+}
+
+const removeIosGestureBlockers = () => {
+  if (!containerRef.value || !gestureBlockersBound) return
+  const el = containerRef.value
+  el.removeEventListener('gesturestart', preventGesture)
+  el.removeEventListener('gesturechange', preventGesture)
+  el.removeEventListener('gestureend', preventGesture)
+  gestureBlockersBound = false
+  debugLog('[VideoPlayer] 已移除iOS手势拦截')
+}
+
+function preventGesture(e) {
+  e.preventDefault()
+}
+
 // 自定义全屏切换函数
 const toggleCustomFullscreen = () => {
   isCustomFullscreen.value = !isCustomFullscreen.value
@@ -855,6 +882,8 @@ const toggleCustomFullscreen = () => {
   if (isCustomFullscreen.value) {
     // 进入自定义全屏
     debugLog('[VideoPlayer] 进入自定义全屏，启用缩放拖动')
+    // 绑定iOS手势拦截
+    addIosGestureBlockers()
     
     // 尝试锁定屏幕方向为横屏（移动端）
     if (screen.orientation && screen.orientation.lock) {
@@ -866,6 +895,8 @@ const toggleCustomFullscreen = () => {
     // 退出自定义全屏
     debugLog('[VideoPlayer] 退出自定义全屏，重置缩放')
     resetZoom()
+    // 解除iOS手势拦截
+    removeIosGestureBlockers()
     
     // 解锁屏幕方向
     if (screen.orientation && screen.orientation.unlock) {
@@ -1354,6 +1385,7 @@ onUnmounted(() => {
   // 退出自定义全屏
   if (isCustomFullscreen.value) {
     isCustomFullscreen.value = false
+    removeIosGestureBlockers()
     if (screen.orientation && screen.orientation.unlock) {
       screen.orientation.unlock()
     }
@@ -1430,6 +1462,13 @@ onUnmounted(() => {
   max-height: 100vh !important;
   z-index: 9999 !important;
   background: #000 !important;
+}
+
+/* 自定义全屏下禁用系统手势，确保手势由我们接管 */
+.custom-fullscreen .video-element {
+  touch-action: none;
+  -webkit-user-select: none;
+  pointer-events: auto;
 }
 
 /* 自定义全屏按钮 */
