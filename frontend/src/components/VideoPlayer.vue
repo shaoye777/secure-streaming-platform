@@ -947,41 +947,62 @@ const toggleCustomFullscreen = () => {
 // 切换画面旋转
 const toggleRotation = () => {
   if (videoRotation.value === 0) {
+    // 先重置缩放和平移
+    scale.value = 1
+    translateX.value = 0
+    translateY.value = 0
+    
     // 旋转到90度
     videoRotation.value = 90
     
-    // 自动调整缩放以填充满屏幕
-    if (containerRef.value && videoRef.value) {
-      const container = containerRef.value.getBoundingClientRect()
-      const video = videoRef.value
-      
-      // 获取视频原始尺寸
-      const videoWidth = video.videoWidth || video.clientWidth
-      const videoHeight = video.videoHeight || video.clientHeight
-      
-      if (videoWidth && videoHeight && container.width && container.height) {
-        // 计算旋转后需要的缩放比例
-        // 旋转90度后，视频的宽变成高，高变成宽
-        // 要让旋转后的画面填充满容器，需要：
-        // min(容器宽度/旋转后视频宽度, 容器高度/旋转后视频高度)
-        const scaleX = container.width / videoHeight  // 旋转后视频宽度是原高度
-        const scaleY = container.height / videoWidth  // 旋转后视频高度是原宽度
-        
-        // 取较大值以填充满屏幕（可能会裁剪一部分）
-        const autoScale = Math.max(scaleX, scaleY)
-        scale.value = autoScale
-        
-        debugLog('[VideoPlayer] 旋转90度，自动缩放:', {
-          videoWidth,
-          videoHeight,
-          containerWidth: container.width,
-          containerHeight: container.height,
-          scaleX,
-          scaleY,
-          autoScale
-        })
-      }
-    }
+    // 延迟计算缩放，确保旋转transform已应用
+    nextTick(() => {
+      setTimeout(() => {
+        if (containerRef.value && videoRef.value) {
+          const container = containerRef.value.getBoundingClientRect()
+          const video = videoRef.value
+          
+          // 获取视频原始尺寸
+          let videoWidth = video.videoWidth
+          let videoHeight = video.videoHeight
+          
+          // 如果视频尺寸未加载，使用显示尺寸
+          if (!videoWidth || !videoHeight) {
+            videoWidth = video.clientWidth
+            videoHeight = video.clientHeight
+          }
+          
+          // 如果仍然获取不到，使用16:9比例估算
+          if (!videoWidth || !videoHeight) {
+            videoWidth = 1920
+            videoHeight = 1080
+            debugLog('[VideoPlayer] 使用默认视频尺寸 16:9')
+          }
+          
+          if (container.width && container.height) {
+            // 计算旋转后需要的缩放比例
+            // 旋转90度后，视频的宽变成高，高变成宽
+            const scaleX = container.width / videoHeight  // 旋转后视频宽度是原高度
+            const scaleY = container.height / videoWidth  // 旋转后视频高度是原宽度
+            
+            // 取较大值以填充满屏幕（可能会裁剪一部分）
+            const autoScale = Math.max(scaleX, scaleY)
+            scale.value = autoScale
+            
+            debugLog('[VideoPlayer] 旋转90度，自动缩放:', {
+              videoWidth,
+              videoHeight,
+              containerWidth: container.width,
+              containerHeight: container.height,
+              scaleX,
+              scaleY,
+              autoScale,
+              finalScale: scale.value
+            })
+          }
+        }
+      }, 50)  // 延迟50ms确保transform已应用
+    })
   } else {
     // 恢复到0度
     videoRotation.value = 0
