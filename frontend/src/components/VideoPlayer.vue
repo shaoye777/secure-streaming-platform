@@ -39,6 +39,7 @@
         <video 
           ref="videoRef"
           class="video-element"
+          :data-rotated="videoRotation !== 0"
           :controls="!isCustomFullscreen"
           autoplay
           muted
@@ -1733,6 +1734,13 @@ onUnmounted(() => {
   -webkit-user-select: none;
   pointer-events: auto;
 }
+
+/* 旋转时使用cover模式填充满屏 */
+.video-element[data-rotated="true"] {
+  object-fit: cover !important;
+}
+
+
 
 /* 自定义全屏按钮 */
 .custom-fullscreen-btn,
