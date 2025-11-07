@@ -1082,6 +1082,7 @@ class SimpleStreamManager {
         '-f', 'hls',
         '-hls_time', '2',
         '-hls_list_size', '6',
+        '-hls_flags', 'delete_segments',  // 🔥 自动删除旧分片
         '-hls_segment_filename', path.join(outputDir, 'segment%03d.ts'),
         '-hls_allow_cache', '0',
         '-start_number', '0',
@@ -1104,6 +1105,7 @@ class SimpleStreamManager {
         '-f', 'hls',
         '-hls_time', '2',
         '-hls_list_size', '6',
+        '-hls_flags', 'delete_segments',  // 🔥 自动删除旧分片
         '-hls_segment_filename', path.join(outputDir, 'segment%03d.ts'),
         '-hls_allow_cache', '0',
         '-start_number', '0',
