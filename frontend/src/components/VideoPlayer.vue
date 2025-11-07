@@ -965,35 +965,39 @@ const toggleRotation = () => {
       setTimeout(() => {
         if (containerRef.value && videoRef.value) {
           const container = containerRef.value.getBoundingClientRect()
-          // 用渲染后的可见尺寸（未受wrapper transform影响）
-          const rect = videoRef.value.getBoundingClientRect()
+          const video = videoRef.value
+          
+          // 使用原始视频尺寸，不受当前scale影响
+          let baseW = video.videoWidth
+          let baseH = video.videoHeight
 
-          let baseW = rect.width
-          let baseH = rect.height
-
-          // 兜底：如果仍不可用，使用clientWidth/Height，再不行按16:9估算
+          // 兜底：如果视频尺寸未加载，用容器的宽高比估算
           if (!baseW || !baseH) {
-            baseW = videoRef.value.clientWidth || 1920
-            baseH = videoRef.value.clientHeight || 1080
+            // 假设16:9横向视频
+            baseW = 1920
+            baseH = 1080
+            debugLog('[VideoPlayer] 视频尺寸未加载，使用默认16:9')
           }
 
           if (container.width && container.height && baseW && baseH) {
-            // scale 先于 rotate，旋转90度后包围盒尺寸变为 (baseH*scale, baseW*scale)
+            // transform顺序：translate scale rotate
+            // 所以：原始(baseW×baseH) -> scale后(baseW*s × baseH*s) -> rotate(90)后包围盒(baseH*s × baseW*s)
+            // 要覆盖容器(cW × cH)，需要：baseH*s >= cW 且 baseW*s >= cH
+            // 即：s >= max(cW/baseH, cH/baseW)
             const scaleX = container.width / baseH
             const scaleY = container.height / baseW
-            // 取更大的以覆盖容器（cover），并至少为1，避免错误缩小
-            const autoScale = Math.max(1, Math.max(scaleX, scaleY))
+            const autoScale = Math.max(scaleX, scaleY)
             scale.value = autoScale
 
-            debugLog('[VideoPlayer] 旋转90度，自动缩放(基于渲染尺寸):', {
-              baseW,
-              baseH,
+            debugLog('[VideoPlayer] 旋转90度，自动缩放(基于原始尺寸):', {
+              videoWidth: baseW,
+              videoHeight: baseH,
               containerWidth: container.width,
               containerHeight: container.height,
-              scaleX,
-              scaleY,
-              autoScale,
-              finalScale: scale.value
+              scaleX: scaleX.toFixed(3),
+              scaleY: scaleY.toFixed(3),
+              autoScale: autoScale.toFixed(3),
+              finalScale: scale.value.toFixed(3)
             })
           }
         }
@@ -1013,22 +1017,36 @@ const toggleRotation = () => {
 function computeAutoScaleForRotate() {
   if (!containerRef.value || !videoRef.value) return
   const container = containerRef.value.getBoundingClientRect()
-  const rect = videoRef.value.getBoundingClientRect()
-  let baseW = rect.width
-  let baseH = rect.height
+  const video = videoRef.value
+  
+  // 使用原始视频尺寸
+  let baseW = video.videoWidth
+  let baseH = video.videoHeight
+  
   if (!baseW || !baseH) {
-    baseW = videoRef.value.clientWidth || 1920
-    baseH = videoRef.value.clientHeight || 1080
+    baseW = 1920
+    baseH = 1080
   }
+  
   if (!container.width || !container.height || !baseW || !baseH) return
-  // scale 先于 rotate，旋转90度后的包围盒宽高 = (baseH*scale, baseW*scale)
+  
+  // 旋转90度后包围盒：(baseH*scale × baseW*scale)
   const scaleX = container.width / baseH
   const scaleY = container.height / baseW
-  const autoScale = Math.max(1, Math.max(scaleX, scaleY))
+  const autoScale = Math.max(scaleX, scaleY)
   scale.value = autoScale
   translateX.value = 0
   translateY.value = 0
-  debugLog('[VideoPlayer] 自动适配重算:', { baseW, baseH, cw: container.width, ch: container.height, scaleX, scaleY, autoScale })
+  
+  debugLog('[VideoPlayer] 自动适配重算:', { 
+    videoW: baseW, 
+    videoH: baseH, 
+    containerW: container.width, 
+    containerH: container.height, 
+    scaleX: scaleX.toFixed(3), 
+    scaleY: scaleY.toFixed(3), 
+    autoScale: autoScale.toFixed(3) 
+  })
 }
 
 onMounted(() => {
