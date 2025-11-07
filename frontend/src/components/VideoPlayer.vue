@@ -321,24 +321,11 @@ const backendPathText = computed(() => {
 
 // 视频变换样式
 const videoTransformStyle = computed(() => {
-  const style = {
+  return {
     transform: `translate(${translateX.value}px, ${translateY.value}px) scale(${scale.value}) rotate(${videoRotation.value}deg)`,
     transformOrigin: 'center center',
     transition: isDragging.value ? 'none' : 'transform 0.3s ease-out'
   }
-  
-  // 旋转时，wrapper调整为100vh×100vw并居中（通过translateY调整偏移）
-  if (videoRotation.value !== 0) {
-    style.width = '100vh'
-    style.height = '100vw'
-    style.position = 'absolute'
-    style.left = '50%'
-    style.top = '50%'
-    style.marginLeft = '-50vh'  // -width/2，水平居中
-    style.marginTop = '-50vw'   // -height/2，垂直居中（通过transform translateY调整偏移）
-  }
-  
-  return style
 })
 
 const initHls = () => {
