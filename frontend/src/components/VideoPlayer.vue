@@ -251,9 +251,6 @@ const lastTouchCenter = ref({ x: 0, y: 0 })
 const touches = ref([])
 const isDragging = ref(false)
 const lastPanPoint = ref({ x: 0, y: 0 })
-// 用于区分点击和拖动
-const touchStartPoint = ref({ x: 0, y: 0 })
-const hasMoved = ref(false)
 const isCustomFullscreen = ref(false)
 // 鼠标拖动状态（PC端）
 const isMouseDragging = ref(false)
@@ -1193,22 +1190,17 @@ const handleTouchStart = (event) => {
     lastTouchCenter.value = getTouchCenter(touches.value[0], touches.value[1])
     debugLog('双指缩放开始 - 平台:', deviceInfo.isIOS ? 'iOS' : deviceInfo.isAndroid ? 'Android' : 'PC')
   } else if (touches.value.length === 1) {
-    // 单指处理 - 记录起始位置
-    touchStartPoint.value = {
-      x: touches.value[0].clientX,
-      y: touches.value[0].clientY
-    }
-    hasMoved.value = false
-    
+    // 单指处理 - 根据平台和状态决定行为
     if (scale.value > 1) {
-      // 已缩放状态下准备拖拽（但先不设置isDragging，等移动后再判断）
+      // 已缩放状态下允许拖拽
       event.preventDefault()
+      isDragging.value = true
       
       lastPanPoint.value = {
         x: touches.value[0].clientX,
         y: touches.value[0].clientY
       }
-      debugLog('单指触摸开始:', { 
+      debugLog('单指拖拽开始:', { 
         scale: scale.value, 
         isCustomFullscreen: isCustomFullscreen.value,
         platform: deviceInfo.isIOS ? 'iOS' : deviceInfo.isAndroid ? 'Android' : 'PC'
@@ -1225,54 +1217,38 @@ const handleTouchMove = (event) => {
   const deviceInfo = getDeviceInfo()
   touches.value = Array.from(event.touches)
   
-  if (touches.value.length === 1 && scale.value > 1) {
-    // 检查是否真的移动了（区分点击和拖动）
-    if (!hasMoved.value) {
-      const moveX = Math.abs(touches.value[0].clientX - touchStartPoint.value.x)
-      const moveY = Math.abs(touches.value[0].clientY - touchStartPoint.value.y)
-      const moveDistance = Math.sqrt(moveX * moveX + moveY * moveY)
-      
-      // 移动距离超过10px才认为是拖动
-      if (moveDistance > 10) {
-        hasMoved.value = true
-        isDragging.value = true
-        debugLog('检测到拖动，移动距离:', moveDistance)
-      }
+  if (touches.value.length === 1 && isDragging.value && scale.value > 1) {
+    // 单指拖拽 - 跨平台兼容处理
+    event.preventDefault()
+    
+    const deltaX = touches.value[0].clientX - lastPanPoint.value.x
+    const deltaY = touches.value[0].clientY - lastPanPoint.value.y
+    
+    // 根据平台调整拖拽敏感度
+    let sensitivity = 1
+    if (deviceInfo.isIOS && isCustomFullscreen.value) {
+      // iOS全屏状态下可能需要调整敏感度
+      sensitivity = 1.2
     }
     
-    if (isDragging.value) {
-      // 单指拖拽 - 跨平台兼容处理
-      event.preventDefault()
-      
-      const deltaX = touches.value[0].clientX - lastPanPoint.value.x
-      const deltaY = touches.value[0].clientY - lastPanPoint.value.y
-      
-      // 根据平台调整拖拽敏感度
-      let sensitivity = 1
-      if (deviceInfo.isIOS && isCustomFullscreen.value) {
-        // iOS全屏状态下可能需要调整敏感度
-        sensitivity = 1.2
-      }
-      
-      translateX.value += deltaX * sensitivity
-      translateY.value += deltaY * sensitivity
-      
-      lastPanPoint.value = {
-        x: touches.value[0].clientX,
-        y: touches.value[0].clientY
-      }
-      
-      debugLog('单指拖拽中:', { 
-        deltaX: deltaX * sensitivity, 
-        deltaY: deltaY * sensitivity, 
-        translateX: translateX.value, 
-        translateY: translateY.value,
-        isCustomFullscreen: isCustomFullscreen.value,
-        scale: scale.value,
-        platform: deviceInfo.isIOS ? 'iOS' : deviceInfo.isAndroid ? 'Android' : 'PC',
-        sensitivity
-      })
+    translateX.value += deltaX * sensitivity
+    translateY.value += deltaY * sensitivity
+    
+    lastPanPoint.value = {
+      x: touches.value[0].clientX,
+      y: touches.value[0].clientY
     }
+    
+    debugLog('单指拖拽中:', { 
+      deltaX: deltaX * sensitivity, 
+      deltaY: deltaY * sensitivity, 
+      translateX: translateX.value, 
+      translateY: translateY.value,
+      isCustomFullscreen: isCustomFullscreen.value,
+      scale: scale.value,
+      platform: deviceInfo.isIOS ? 'iOS' : deviceInfo.isAndroid ? 'Android' : 'PC',
+      sensitivity
+    })
   } else if (touches.value.length === 2) {
     // 双指缩放
     event.preventDefault()
@@ -1331,30 +1307,14 @@ const handleTouchEnd = (event) => {
   debugLog('触摸结束:', {
     touchCount: event.touches.length,
     isDragging: isDragging.value,
-    hasMoved: hasMoved.value,
     scale: scale.value,
-    isCustomFullscreen: isCustomFullscreen.value,
-    videoRotation: videoRotation.value
+    isCustomFullscreen: isCustomFullscreen.value
   })
   
   touches.value = Array.from(event.touches)
   
   if (event.touches.length === 0) {
-    // 如果是在旋转模式下的点击（没有移动），触发控制条切换
-    if (isCustomFullscreen.value && videoRotation.value !== 0 && !hasMoved.value && scale.value > 1) {
-      debugLog('检测到点击（无拖动），切换控制条')
-      // 取消单击延迟定时器（如果有的话）
-      if (clickTimer) {
-        clearTimeout(clickTimer)
-      }
-      // 延迟处理以区分双击
-      clickTimer = setTimeout(() => {
-        toggleControlsVisibility()
-      }, 200)
-    }
-    
     isDragging.value = false
-    hasMoved.value = false
     debugLog('所有触摸结束，停止拖拽')
   }
 }
