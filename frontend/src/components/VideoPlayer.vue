@@ -338,14 +338,6 @@ const videoTransformStyle = computed(() => {
     const centerX = -50 // 百分比
     const centerY = -50 // 百分比
     style.transform = `translate(calc(${centerX}% + ${translateX.value}px), calc(${centerY}% + ${translateY.value}px)) scale(${scale.value}) rotate(${videoRotation.value}deg)`
-    
-    // 调试日志
-    console.log('[旋转居中 v2025-01-07-17:08] wrapper样式:', {
-      width: style.width,
-      height: style.height,
-      transform: style.transform,
-      rotation: videoRotation.value
-    })
   } else {
     // 未旋转时的正常变换
     style.transform = `translate(${translateX.value}px, ${translateY.value}px) scale(${scale.value}) rotate(${videoRotation.value}deg)`
