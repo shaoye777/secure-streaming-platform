@@ -960,48 +960,83 @@ const toggleRotation = () => {
     // 旋转到90度
     videoRotation.value = 90
 
-    // 延迟计算缩放，确保布局稳定
-    nextTick(() => {
+    // 多次延迟计算，确保视频尺寸已加载
+    const tryComputeScale = (delay, attempt) => {
       setTimeout(() => {
-        if (containerRef.value && videoRef.value) {
-          const container = containerRef.value.getBoundingClientRect()
-          const video = videoRef.value
-          
-          // 使用原始视频尺寸，不受当前scale影响
-          let baseW = video.videoWidth
-          let baseH = video.videoHeight
+        if (!containerRef.value || !videoRef.value) return
+        
+        const container = containerRef.value.getBoundingClientRect()
+        const video = videoRef.value
+        
+        // 使用原始视频尺寸
+        let videoW = video.videoWidth
+        let videoH = video.videoHeight
+        
+        debugLog(`[VideoPlayer] 旋转自动缩放 尝试${attempt} (${delay}ms):`, {
+          videoWidth: videoW,
+          videoHeight: videoH,
+          clientWidth: video.clientWidth,
+          clientHeight: video.clientHeight,
+          containerWidth: container.width,
+          containerHeight: container.height
+        })
 
-          // 兜底：如果视频尺寸未加载，用容器的宽高比估算
-          if (!baseW || !baseH) {
-            // 假设16:9横向视频
-            baseW = 1920
-            baseH = 1080
-            debugLog('[VideoPlayer] 视频尺寸未加载，使用默认16:9')
-          }
-
-          if (container.width && container.height && baseW && baseH) {
-            // transform顺序：translate scale rotate
-            // 所以：原始(baseW×baseH) -> scale后(baseW*s × baseH*s) -> rotate(90)后包围盒(baseH*s × baseW*s)
-            // 要覆盖容器(cW × cH)，需要：baseH*s >= cW 且 baseW*s >= cH
-            // 即：s >= max(cW/baseH, cH/baseW)
-            const scaleX = container.width / baseH
-            const scaleY = container.height / baseW
-            const autoScale = Math.max(scaleX, scaleY)
-            scale.value = autoScale
-
-            debugLog('[VideoPlayer] 旋转90度，自动缩放(基于原始尺寸):', {
-              videoWidth: baseW,
-              videoHeight: baseH,
-              containerWidth: container.width,
-              containerHeight: container.height,
-              scaleX: scaleX.toFixed(3),
-              scaleY: scaleY.toFixed(3),
-              autoScale: autoScale.toFixed(3),
-              finalScale: scale.value.toFixed(3)
-            })
-          }
+        // 如果视频尺寸仍未加载，尝试其他方式
+        if (!videoW || !videoH) {
+          // 尝试使用offsetWidth/Height
+          videoW = video.offsetWidth
+          videoH = video.offsetHeight
+          debugLog(`[VideoPlayer] 使用offsetWidth/Height:`, { videoW, videoH })
         }
-      }, 50)
+        
+        // 最后兜底
+        if (!videoW || !videoH) {
+          if (attempt < 3) return // 还有后续尝试，先跳过
+          videoW = 1920
+          videoH = 1080
+          debugLog('[VideoPlayer] ⚠️ 视频尺寸获取失败，使用兜底值16:9')
+        }
+
+        if (container.width && container.height && videoW && videoH) {
+          // 旋转90度后包围盒：(videoH*scale × videoW*scale)
+          // 要填满容器：videoH*scale >= containerW 且 videoW*scale >= containerH
+          const scaleForWidth = container.width / videoH
+          const scaleForHeight = container.height / videoW
+          let autoScale = Math.max(scaleForWidth, scaleForHeight)
+          
+          // 特殊处理：如果计算结果太小(<1)，可能是获取到错误的尺寸
+          if (autoScale < 1 && (videoW > container.height || videoH > container.width)) {
+            // 横向视频旋转到竖向容器，应该用长边填满
+            autoScale = container.height / videoH
+            debugLog('[VideoPlayer] ⚠️ 检测到异常，使用长边适配')
+          }
+          
+          scale.value = autoScale
+          translateX.value = 0
+          translateY.value = 0
+
+          debugLog('[VideoPlayer] ✅ 旋转自动缩放完成:', {
+            attempt,
+            videoW,
+            videoH,
+            containerW: container.width,
+            containerH: container.height,
+            scaleForWidth: scaleForWidth.toFixed(3),
+            scaleForHeight: scaleForHeight.toFixed(3),
+            autoScale: autoScale.toFixed(3),
+            percentage: `${Math.round(autoScale * 100)}%`,
+            rotatedBoxW: Math.round(videoH * autoScale),
+            rotatedBoxH: Math.round(videoW * autoScale)
+          })
+        }
+      }, delay)
+    }
+    
+    // 多次尝试：50ms, 200ms, 500ms
+    nextTick(() => {
+      tryComputeScale(50, 1)
+      tryComputeScale(200, 2)
+      tryComputeScale(500, 3)
     })
   } else {
     // 恢复到0度
