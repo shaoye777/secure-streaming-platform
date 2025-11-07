@@ -930,6 +930,8 @@ const toggleCustomFullscreen = () => {
     if (screen.orientation && screen.orientation.lock) {
       screen.orientation.lock('landscape').catch(e => {
         debugLog('[VideoPlayer] 屏幕方向锁定失败:', e.message)
+      })
+    }
   } else {
     // 退出自定义全屏
     debugLog('[VideoPlayer] 退出自定义全屏，重置缩放')
@@ -944,14 +946,6 @@ const toggleCustomFullscreen = () => {
     if (screen.orientation && screen.orientation.unlock) {
       screen.orientation.unlock()
     }
-    // 监听resize和orientationchange事件，以便在旋转后自动适配
-    window.addEventListener('resize', handleResize)
-    window.addEventListener('orientationchange', handleOrientationChange)
-    // 在旋转后自动适配
-    setTimeout(() => {
-      computeAutoScaleForRotate()
-    }, 100)
-{{ ... }}
   }
 }
 
