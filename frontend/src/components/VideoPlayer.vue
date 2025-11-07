@@ -969,42 +969,25 @@ const toggleRotation = () => {
         const container = containerRef.value.getBoundingClientRect()
         const video = videoRef.value
         
-        // 使用原始视频尺寸
-        let videoW = video.videoWidth
-        let videoH = video.videoHeight
+        // 使用video元素的实际渲染尺寸（clientWidth/Height）
+        // 因为video使用width:100%, height:100%，所以会继承容器尺寸
+        let videoW = video.clientWidth || container.width
+        let videoH = video.clientHeight || container.height
         
         debugLog(`[VideoPlayer] 旋转自动缩放 尝试${attempt} (${delay}ms):`, {
-          videoWidth: videoW,
-          videoHeight: videoH,
-          clientWidth: video.clientWidth,
-          clientHeight: video.clientHeight,
+          videoClientWidth: video.clientWidth,
+          videoClientHeight: video.clientHeight,
+          videoNaturalWidth: video.videoWidth,
+          videoNaturalHeight: video.videoHeight,
           containerWidth: container.width,
           containerHeight: container.height
         })
 
-        // 如果视频尺寸仍未加载，尝试其他方式
-        if (!videoW || !videoH) {
-          // 尝试使用offsetWidth/Height
-          videoW = video.offsetWidth
-          videoH = video.offsetHeight
-          debugLog(`[VideoPlayer] 使用offsetWidth/Height:`, { videoW, videoH })
-        }
-        
-        // 最后兜底
-        if (!videoW || !videoH) {
-          if (attempt < 3) return // 还有后续尝试，先跳过
-          videoW = 1920
-          videoH = 1080
-          debugLog('[VideoPlayer] ⚠️ 视频尺寸获取失败，使用兜底值16:9')
-        }
-
         if (container.width && container.height && videoW && videoH) {
-          // 判断视频是横向还是竖向
-          const isVideoLandscape = videoW > videoH
-          const isContainerPortrait = container.height > container.width
-          
-          // 旋转90度后包围盒：(videoH*scale × videoW*scale)
-          // cover模式：取max确保两个维度都能覆盖容器
+          // 旋转90度后，video的宽高互换
+          // 原始：videoW × videoH
+          // 旋转后包围盒：videoH × videoW
+          // 要覆盖容器，需要：videoH*scale >= container.width 且 videoW*scale >= container.height
           const scaleForWidth = container.width / videoH
           const scaleForHeight = container.height / videoW
           const autoScale = Math.max(scaleForWidth, scaleForHeight)
@@ -1735,13 +1718,9 @@ onUnmounted(() => {
   pointer-events: auto;
 }
 
-/* 旋转时使用cover模式填充满屏，并移除尺寸限制 */
+/* 旋转时使用cover模式填充 */
 .video-element[data-rotated="true"] {
   object-fit: cover !important;
-  width: auto !important;
-  height: auto !important;
-  min-width: 100vw !important;
-  min-height: 100vh !important;
 }
 
 
