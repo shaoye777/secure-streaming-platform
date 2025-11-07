@@ -946,7 +946,49 @@ const toggleCustomFullscreen = () => {
 
 // 切换画面旋转
 const toggleRotation = () => {
-  videoRotation.value = videoRotation.value === 0 ? 90 : 0
+  if (videoRotation.value === 0) {
+    // 旋转到90度
+    videoRotation.value = 90
+    
+    // 自动调整缩放以填充满屏幕
+    if (containerRef.value && videoRef.value) {
+      const container = containerRef.value.getBoundingClientRect()
+      const video = videoRef.value
+      
+      // 获取视频原始尺寸
+      const videoWidth = video.videoWidth || video.clientWidth
+      const videoHeight = video.videoHeight || video.clientHeight
+      
+      if (videoWidth && videoHeight && container.width && container.height) {
+        // 计算旋转后需要的缩放比例
+        // 旋转90度后，视频的宽变成高，高变成宽
+        // 要让旋转后的画面填充满容器，需要：
+        // min(容器宽度/旋转后视频宽度, 容器高度/旋转后视频高度)
+        const scaleX = container.width / videoHeight  // 旋转后视频宽度是原高度
+        const scaleY = container.height / videoWidth  // 旋转后视频高度是原宽度
+        
+        // 取较大值以填充满屏幕（可能会裁剪一部分）
+        const autoScale = Math.max(scaleX, scaleY)
+        scale.value = autoScale
+        
+        debugLog('[VideoPlayer] 旋转90度，自动缩放:', {
+          videoWidth,
+          videoHeight,
+          containerWidth: container.width,
+          containerHeight: container.height,
+          scaleX,
+          scaleY,
+          autoScale
+        })
+      }
+    }
+  } else {
+    // 恢复到0度
+    videoRotation.value = 0
+    // 重置缩放
+    resetZoom()
+  }
+  
   debugLog('[VideoPlayer] 切换画面旋转:', videoRotation.value)
 }
 
