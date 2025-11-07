@@ -155,13 +155,13 @@
               <!-- 顶部小圆点 -->
               <circle cx="16" cy="9" r="0.5" fill="currentColor"></circle>
               
-              <!-- 左侧旋转箭头（逆时针，加长） -->
-              <path d="M 6 14 A 8 8 0 0 1 10 8" stroke-width="2"></path>
-              <path d="M 5 13 L 6 14 L 7 13" stroke-width="2" fill="none"></path>
+              <!-- 左侧旋转箭头（逆时针，更长） -->
+              <path d="M 5 15 A 10 10 0 0 1 10 6" stroke-width="2.2"></path>
+              <path d="M 4 14 L 5 15 L 6 14" stroke-width="2.2" fill="none"></path>
               
-              <!-- 右侧旋转箭头（顺时针，加长） -->
-              <path d="M 26 18 A 8 8 0 0 1 22 24" stroke-width="2"></path>
-              <path d="M 27 19 L 26 18 L 25 19" stroke-width="2" fill="none"></path>
+              <!-- 右侧旋转箭头（顺时针，更长） -->
+              <path d="M 27 17 A 10 10 0 0 1 22 26" stroke-width="2.2"></path>
+              <path d="M 28 18 L 27 17 L 26 18" stroke-width="2.2" fill="none"></path>
             </svg>
             <!-- 已旋转状态：手机+两侧旋转箭头 -->
             <svg v-else viewBox="0 0 32 32" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -170,13 +170,13 @@
               <!-- 侧面小圆点 -->
               <circle cx="23" cy="16" r="0.5" fill="currentColor"></circle>
               
-              <!-- 上侧旋转箭头（逆时针，加长） -->
-              <path d="M 14 6 A 8 8 0 0 0 8 10" stroke-width="2"></path>
-              <path d="M 13 5 L 14 6 L 13 7" stroke-width="2" fill="none"></path>
+              <!-- 上侧旋转箭头（逆时针，更长） -->
+              <path d="M 15 5 A 10 10 0 0 0 6 10" stroke-width="2.2"></path>
+              <path d="M 14 4 L 15 5 L 14 6" stroke-width="2.2" fill="none"></path>
               
-              <!-- 下侧旋转箭头（顺时针，加长） -->
-              <path d="M 18 26 A 8 8 0 0 0 24 22" stroke-width="2"></path>
-              <path d="M 19 27 L 18 26 L 19 25" stroke-width="2" fill="none"></path>
+              <!-- 下侧旋转箭头（顺时针，更长） -->
+              <path d="M 17 27 A 10 10 0 0 0 26 22" stroke-width="2.2"></path>
+              <path d="M 18 28 L 17 27 L 18 26" stroke-width="2.2" fill="none"></path>
             </svg>
           </button>
         </transition>
