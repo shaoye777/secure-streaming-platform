@@ -1009,8 +1009,15 @@ const toggleRotation = () => {
           displayW = wrapperH * videoAspect
         }
         
-        // 旋转后使用100%，居中显示
-        scale.value = 1.0
+        // 计算scale：让旋转后的内容刚好填充满容器（无黑边）
+        // displayW×displayH是video在wrapper中contain模式的实际尺寸
+        // 旋转90度后包围盒变为：displayH × displayW
+        // 要填充容器(container.width × container.height)，需要：
+        const scaleX = container.width / displayH
+        const scaleY = container.height / displayW
+        const autoScale = Math.max(scaleX, scaleY)  // 取大值确保两个方向都能覆盖
+        
+        scale.value = autoScale
         translateX.value = 0
         translateY.value = 0
         
@@ -1019,8 +1026,12 @@ const toggleRotation = () => {
           videoSize: `${videoW}×${videoH}`,
           wrapperSize: `${Math.round(wrapperW)}×${Math.round(wrapperH)}`,
           displaySize: `${Math.round(displayW)}×${Math.round(displayH)}`,
+          rotatedBox: `${Math.round(displayH)}×${Math.round(displayW)}`,
           containerSize: `${Math.round(container.width)}×${Math.round(container.height)}`,
-          scale: '1.0 (100%)'
+          scaleX: scaleX.toFixed(3),
+          scaleY: scaleY.toFixed(3),
+          scale: autoScale.toFixed(3),
+          percentage: `${Math.round(autoScale * 100)}%`
         })
       }, 100)
     })
