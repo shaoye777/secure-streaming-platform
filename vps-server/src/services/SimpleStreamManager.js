@@ -743,7 +743,10 @@ class SimpleStreamManager {
       // 从预加载集合中移除
       this.preloadChannels.delete(channelId);
       
-      // ✅ 检查是否还在录制（对称处理，与disableRecording一致）
+      // 🔥 先移除预加载的心跳记录（避免误判为有观看者）
+      this.channelHeartbeats.delete(channelId);
+      
+      // ✅ 检查是否还在录制或有真实观看者
       const isRecording = this.recordingChannels.has(channelId);
       const hasViewers = this.channelHeartbeats.has(channelId);
       
@@ -761,9 +764,6 @@ class SimpleStreamManager {
         logger.info('No recording or viewers, stopping channel', { channelId });
         await this.stopChannel(channelId);
       }
-      
-      // 移除心跳记录（预加载停止后不再需要）
-      this.channelHeartbeats.delete(channelId);
       
       logger.info('Preload stopped successfully', { channelId });
       
