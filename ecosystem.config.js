@@ -11,12 +11,16 @@ module.exports = {
       env: {
         NODE_ENV: 'development',
         PORT: 3000,
-        TZ: 'Asia/Shanghai'  // 🔥 设置时区为北京时间
+        TZ: 'Asia/Shanghai',  // 🔥 设置时区为北京时间
+        VPS_BASE_URL: 'https://yoyo-vps.5202021.xyz',
+        WORKERS_API_URL: 'https://yoyoapi.5202021.xyz'
       },
       env_production: {
         NODE_ENV: 'production',
         PORT: 3000,
-        TZ: 'Asia/Shanghai'  // 🔥 设置时区为北京时间
+        TZ: 'Asia/Shanghai',  // 🔥 设置时区为北京时间
+        VPS_BASE_URL: 'https://yoyo-vps.5202021.xyz',
+        WORKERS_API_URL: 'https://yoyoapi.5202021.xyz'
       },
 
       // 自动重启配置
