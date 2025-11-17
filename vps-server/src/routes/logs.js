@@ -10,7 +10,7 @@ const execAsync = promisify(exec);
 
 // VPS实际使用PM2管理日志
 const PM2_LOG_DIR = '/var/log/transcoder';
-const WINSTON_LOG_DIR = '/var/log/vps-transcoder';
+const WINSTON_LOG_DIR = '/opt/yoyo-transcoder/logs'; // Winston应用日志目录
 const MAX_LINES = 100; // 默认返回最近100行
 
 /**
@@ -129,39 +129,137 @@ router.get('/error', async (req, res) => {
 });
 
 /**
+ * 解析Winston JSON格式的日志行
+ * @param {string} line - 日志行
+ * @returns {Object|null} 解析后的日志对象
+ */
+function parseWinstonLogLine(line) {
+  try {
+    const parsed = JSON.parse(line);
+    
+    // Winston日志格式: {"level":"info","message":"...", "timestamp":"...", "service":"...", ...}
+    if (parsed.message && parsed.timestamp) {
+      return {
+        timestamp: parsed.timestamp,
+        level: parsed.level || 'info',
+        message: parsed.message,
+        service: parsed.service,
+        channelId: parsed.channelId,
+        ...parsed // 包含其他字段
+      };
+    }
+    
+    return null;
+  } catch (error) {
+    return null;
+  }
+}
+
+/**
+ * 判断日志是否有意义（应该显示给用户）
+ * @param {Object} log - 日志对象
+ * @returns {boolean} 是否有意义
+ */
+function isMeaningfulLog(log) {
+  const msg = log.message.toLowerCase();
+  
+  // 过滤掉无意义的日志
+  const noisePatterns = [
+    'configuration validated',
+    'ffmpeg stderr',
+    'frame=',
+    'bitrate=',
+    'speed=',
+    'time=',
+    'size=',
+    'dup=',
+    'drop='
+  ];
+  
+  if (noisePatterns.some(pattern => msg.includes(pattern))) {
+    return false;
+  }
+  
+  // 保留有意义的日志关键词
+  const meaningfulPatterns = [
+    'starting',
+    'started',
+    'stopped',
+    'recording',
+    'record',
+    'channel',
+    'stream',
+    'error',
+    'failed',
+    'success',
+    'warning',
+    'scheduler',
+    'initialized',
+    'fetched',
+    'proxy',
+    'cleanup',
+    'deleted'
+  ];
+  
+  // error和warn级别的日志总是保留
+  if (log.level === 'error' || log.level === 'warn') {
+    return true;
+  }
+  
+  return meaningfulPatterns.some(pattern => msg.includes(pattern));
+}
+
+/**
  * GET /api/logs/recent
- * 获取最近的日志（PM2输出日志，过滤FFmpeg噪音）
+ * 获取最近的有意义日志（从Winston应用日志读取）
  */
 router.get('/recent', async (req, res) => {
   try {
     const lines = parseInt(req.query.lines) || 50;
-    const logFile = path.join(PM2_LOG_DIR, 'pm2-out.log');
+    const logFile = path.join(WINSTON_LOG_DIR, 'combined.log');
     
-    const rawLines = await readLastLines(logFile, lines * 3); // 读取更多行以便过滤
-    let logs = rawLines.map(parsePM2LogLine).filter(log => log !== null);
+    // 读取更多行以便过滤后仍有足够的日志
+    const rawLines = await readLastLines(logFile, lines * 5);
+    let logs = rawLines.map(parseWinstonLogLine).filter(log => log !== null);
     
-    // 过滤掉FFmpeg的进度输出（噪音日志）
-    logs = logs.filter(log => {
-      return !log.message.includes('FFmpeg stderr') && 
-             !log.message.startsWith('frame=') &&
-             !log.message.includes('bitrate=');
-    });
+    // 过滤出有意义的日志
+    logs = logs.filter(isMeaningfulLog);
     
     // 倒序并限制数量
     logs = logs.reverse().slice(0, lines);
     
-    // 只返回必要字段，简化前端显示
-    const simplifiedLogs = logs.map(log => ({
-      timestamp: log.timestamp,
-      level: log.level,
-      message: log.message
-    }));
+    // 格式化日志信息，使其更易读
+    const formattedLogs = logs.map(log => {
+      let displayMessage = log.message;
+      
+      // 如果有channelId，添加到消息中
+      if (log.channelId) {
+        displayMessage = `[${log.channelId}] ${displayMessage}`;
+      }
+      
+      // 添加关键上下文信息
+      const contextParts = [];
+      if (log.rtmpUrl) contextParts.push(`RTMP: ${log.rtmpUrl.substring(0, 50)}...`);
+      if (log.count !== undefined) contextParts.push(`count: ${log.count}`);
+      if (log.workersApiUrl) contextParts.push(`API: ${log.workersApiUrl}`);
+      
+      if (contextParts.length > 0) {
+        displayMessage += ` (${contextParts.join(', ')})`;
+      }
+      
+      return {
+        timestamp: log.timestamp,
+        level: log.level,
+        message: displayMessage
+      };
+    });
     
     res.json({
       status: 'success',
       data: {
-        logs: simplifiedLogs,
-        total: simplifiedLogs.length
+        logs: formattedLogs,
+        total: formattedLogs.length,
+        source: 'winston-combined'
       }
     });
   } catch (error) {
