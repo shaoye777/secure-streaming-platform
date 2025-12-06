@@ -31,15 +31,28 @@ const getEmergencyAdmin = (env) => ({
 function handleCors(request, env) {
   const origin = request.headers.get('Origin');
   const allowedOrigins = [env.FRONTEND_DOMAIN, env.PAGES_DOMAIN].filter(Boolean);
-  const allowOrigin = allowedOrigins.includes(origin) ? origin : env.FRONTEND_DOMAIN;
+  // 🆕 当未配置 FRONTEND_DOMAIN/PAGES_DOMAIN 时，自动降级：
+  //  - 有 Origin 则回显该来源
+  //  - 无 Origin 则使用 "*"，同时不允许携带凭据
+  let allowOrigin;
+  let allowCredentials = true;
+  if (allowedOrigins.length > 0) {
+    allowOrigin = allowedOrigins.includes(origin) ? origin : allowedOrigins[0];
+  } else {
+    allowOrigin = origin || '*';
+    if (allowOrigin === '*') allowCredentials = false;
+  }
   
   const corsHeaders = {
     'Access-Control-Allow-Origin': allowOrigin,
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With, X-Client-Type, X-Tunnel-Optimized',
-    'Access-Control-Allow-Credentials': 'true',
+    'Access-Control-Allow-Credentials': allowCredentials ? 'true' : 'false',
     'Access-Control-Max-Age': '86400'
   };
+  if (origin) {
+    corsHeaders['Vary'] = 'Origin';
+  }
 
   if (request.method === 'OPTIONS') {
     return new Response(null, {
@@ -322,6 +335,209 @@ async function handleRequest(request, env, ctx) {
         status: 200,
         headers: { 'Content-Type': 'application/json', ...corsHeaders }
       });
+    }
+
+    // 🆕 初始化路由（幂等）：用于小白一键部署后，通过浏览器完成KV/R2初始化与管理员创建
+    // 支持两种方式：
+    // - 推荐：GET /api/admin/init，并在请求头携带 X-Init-Secret: <secret>
+    // - 备选：GET /api/admin/init/:secret（URL中携带secret，容易泄露，不推荐）
+    if ((path === '/api/admin/init' && method === 'GET') || (path.startsWith('/api/admin/init/') && method === 'GET')) {
+      try {
+        // 1) 读取并校验初始化密钥（优先Header）
+        const headerSecret = request.headers.get('X-Init-Secret');
+        const pathSecret = path.startsWith('/api/admin/init/') ? decodeURIComponent(path.split('/').pop()) : null;
+        const providedSecret = headerSecret || pathSecret;
+        const expectedSecret = env.INIT_SECRET; // 必须在Dashboard作为Secret配置
+
+        if (!expectedSecret) {
+          return new Response(JSON.stringify({
+            status: 'error',
+            message: 'INIT_SECRET 未配置，请在 Cloudflare Dashboard 的 Secrets 中添加'
+          }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+        }
+
+        if (!providedSecret || providedSecret !== expectedSecret) {
+          return new Response(JSON.stringify({
+            status: 'error',
+            message: '初始化密钥错误或缺失'
+          }), { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+        }
+
+        // 2) 解析是否强制执行
+        const force = new URL(request.url).searchParams.get('force') === 'true';
+
+        // 3) 读取系统状态键
+        const initDoneVal = await env.YOYO_USER_DB.get('system:init_done');
+        const currentVersion = await env.YOYO_USER_DB.get('system:version');
+
+        // 若已初始化且非强制，则仅返回状态
+        if (initDoneVal === 'true' && !force) {
+          return new Response(JSON.stringify({
+            status: 'success',
+            message: '系统已初始化，未执行任何变更（使用 ?force=true 可强制重跑幂等步骤）',
+            data: {
+              version: currentVersion || 'unknown',
+              initDone: true
+            }
+          }), { status: 200, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+        }
+
+        // 4) 幂等执行：索引修复/创建、管理员创建、R2最小对象写入、版本标记
+        const results = [];
+
+        // 4.1 频道索引（避免list限制）
+        try {
+          const channelIndexData = await env.YOYO_USER_DB.get('system:channel_index');
+          if (!channelIndexData) {
+            // 尝试用list重建；失败则写入空索引
+            let channelIds = [];
+            try {
+              const list = await env.YOYO_USER_DB.list({ prefix: 'channel:' });
+              channelIds = (list.keys || []).map(k => k.name.replace('channel:', ''));
+            } catch (e) {
+              console.log('重建频道索引时list失败，将写入空索引');
+            }
+            await env.YOYO_USER_DB.put('system:channel_index', JSON.stringify({
+              channelIds,
+              totalChannels: channelIds.length,
+              lastUpdated: new Date().toISOString()
+            }));
+            results.push('channel_index: created');
+          } else {
+            results.push('channel_index: exists');
+          }
+        } catch (e) {
+          console.error('频道索引初始化失败:', e);
+          results.push('channel_index: error');
+        }
+
+        // 4.2 用户索引
+        try {
+          const userIndexData = await env.YOYO_USER_DB.get('system:user_index');
+          if (!userIndexData) {
+            await env.YOYO_USER_DB.put('system:user_index', JSON.stringify({
+              usernames: [],
+              totalUsers: 0,
+              lastUpdated: new Date().toISOString()
+            }));
+            results.push('user_index: created');
+          } else {
+            results.push('user_index: exists');
+          }
+        } catch (e) {
+          console.error('用户索引初始化失败:', e);
+          results.push('user_index: error');
+        }
+
+        // 4.3 管理员账号（仅当不存在时创建）
+        try {
+          const adminUsername = env.EMERGENCY_ADMIN_USERNAME || 'admin';
+          const adminKey = `user:${adminUsername}`;
+          const adminData = await env.YOYO_USER_DB.get(adminKey);
+          if (!adminData) {
+            const emergencyPassword = env.EMERGENCY_ADMIN_PASSWORD;
+            if (!emergencyPassword) {
+              throw new Error('EMERGENCY_ADMIN_PASSWORD 未配置');
+            }
+            const { hashedPassword, salt } = await hashPassword(emergencyPassword);
+            const adminUser = {
+              id: adminUsername,
+              username: adminUsername,
+              displayName: 'Administrator',
+              role: 'admin',
+              status: 'active',
+              createdAt: new Date().toISOString(),
+              email: `${adminUsername}@yoyo.local`,
+              hashedPassword,
+              salt
+            };
+            await env.YOYO_USER_DB.put(adminKey, JSON.stringify(adminUser));
+
+            // 更新用户索引
+            try {
+              const idxRaw = await env.YOYO_USER_DB.get('system:user_index');
+              const idx = idxRaw ? JSON.parse(idxRaw) : { usernames: [], totalUsers: 0 };
+              if (!idx.usernames.includes(adminUsername)) {
+                idx.usernames.push(adminUsername);
+                idx.totalUsers = (idx.totalUsers || 0) + 1;
+                idx.lastUpdated = new Date().toISOString();
+                await env.YOYO_USER_DB.put('system:user_index', JSON.stringify(idx));
+              }
+            } catch (e) {
+              console.log('更新用户索引失败（忽略）:', e.message);
+            }
+
+            results.push('admin_user: created');
+          } else {
+            results.push('admin_user: exists');
+          }
+        } catch (e) {
+          console.error('管理员创建失败:', e);
+          results.push('admin_user: error');
+        }
+
+        // 4.4 清理配置默认值（system:cleanup:config）
+        try {
+          const cleanupCfg = await env.YOYO_USER_DB.get('system:cleanup:config');
+          if (!cleanupCfg) {
+            await env.YOYO_USER_DB.put('system:cleanup:config', JSON.stringify({
+              enabled: true,
+              retentionDays: 2,
+              segmentEnabled: false,
+              segmentDuration: 60,
+              updatedAt: new Date().toISOString()
+            }));
+            results.push('cleanup_config: created');
+          } else {
+            results.push('cleanup_config: exists');
+          }
+        } catch (e) {
+          console.error('清理配置初始化失败:', e);
+          results.push('cleanup_config: error');
+        }
+
+        // 4.5 R2 最小对象（可选）
+        try {
+          if (env.LOGIN_LOGS && env.LOGIN_LOGS.put) {
+            const key = 'index/latest.json';
+            const body = JSON.stringify({ initializedAt: new Date().toISOString(), note: 'bootstrap' });
+            await env.LOGIN_LOGS.put(key, body, { httpMetadata: { contentType: 'application/json' } });
+            results.push('r2_login_logs_index: put');
+          } else {
+            results.push('r2_login_logs_index: skipped (no binding)');
+          }
+        } catch (e) {
+          console.error('R2写入失败（可忽略）:', e);
+          results.push('r2_login_logs_index: error');
+        }
+
+        // 4.6 写入版本与初始化完成标记
+        try {
+          const version = env.VERSION || '2.0.0';
+          await env.YOYO_USER_DB.put('system:version', version);
+          await env.YOYO_USER_DB.put('system:init_done', 'true');
+          results.push('system_flags: updated');
+        } catch (e) {
+          console.error('系统标记写入失败:', e);
+          results.push('system_flags: error');
+        }
+
+        return new Response(JSON.stringify({
+          status: 'success',
+          message: '初始化流程执行完成（幂等）',
+          data: {
+            executed: results,
+            version: (await env.YOYO_USER_DB.get('system:version')) || 'unknown',
+            initDone: (await env.YOYO_USER_DB.get('system:init_done')) === 'true'
+          }
+        }), { status: 200, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+      } catch (error) {
+        console.error('初始化路由执行失败:', error);
+        return new Response(JSON.stringify({
+          status: 'error',
+          message: '初始化失败: ' + error.message
+        }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+      }
     }
 
     // 🔥 统一频道配置API路由（优先匹配，避免被旧路由拦截）
