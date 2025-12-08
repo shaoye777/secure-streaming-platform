@@ -360,7 +360,27 @@ const handleAdd = async () => {
   addLoading.value = true
 
   try {
+    // 生成 channelId：使用频道名称的拼音或英文，移除特殊字符，转为小写
+    // 如果名称是中文，则使用时间戳+随机数生成唯一ID
+    const generateChannelId = (name) => {
+      // 移除所有空格和特殊字符，保留字母数字和中文
+      const cleaned = name.replace(/[^\w\u4e00-\u9fa5]/g, '')
+      
+      // 如果包含中文，使用时间戳+随机数
+      if (/[\u4e00-\u9fa5]/.test(cleaned)) {
+        const timestamp = Date.now().toString(36)
+        const random = Math.random().toString(36).substring(2, 6)
+        return `ch_${timestamp}_${random}`
+      }
+      
+      // 否则使用清理后的英文名称（小写）
+      return cleaned.toLowerCase() || `ch_${Date.now()}`
+    }
+    
+    const channelId = generateChannelId(addForm.name)
+    
     const result = await streamsStore.addStream({
+      channelId: channelId,
       name: addForm.name,
       rtmpUrl: addForm.rtmpUrl
     })
