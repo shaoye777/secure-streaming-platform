@@ -2205,6 +2205,61 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
+    // 重新构建用户索引（当索引缺失或不同步时使用）
+    if (path === '/api/admin/users/reindex' && method === 'POST') {
+      try {
+        // 遍历所有以 user: 开头的键，重建用户索引
+        let cursor = undefined;
+        const usernames = [];
+        while (true) {
+          const opts = cursor ? { prefix: 'user:', cursor } : { prefix: 'user:' };
+          let res;
+          try {
+            res = await env.YOYO_USER_DB.list(opts);
+          } catch (e) {
+            console.error('遍历用户键失败:', e);
+            break;
+          }
+          const keys = (res && res.keys) ? res.keys : [];
+          for (const k of keys) {
+            try {
+              const name = (k.name || '').replace('user:', '');
+              if (name) usernames.push(name);
+            } catch (_) {}
+          }
+          if (!res || res.list_complete || !res.cursor) break;
+          cursor = res.cursor;
+          if (usernames.length > 5000) break; // 保护性退出，避免过大遍历
+        }
+
+        const uniq = Array.from(new Set(usernames));
+        const idx = {
+          usernames: uniq,
+          totalUsers: uniq.length,
+          lastUpdated: new Date().toISOString()
+        };
+        await env.YOYO_USER_DB.put('system:user_index', JSON.stringify(idx));
+
+        return new Response(JSON.stringify({
+          status: 'success',
+          message: '用户索引已重建',
+          data: idx
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json', ...corsHeaders }
+        });
+      } catch (error) {
+        return new Response(JSON.stringify({
+          status: 'error',
+          message: '重建用户索引失败',
+          error: error.message
+        }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json', ...corsHeaders }
+        });
+      }
+    }
+
     // 创建用户API端点
     if (path === '/api/admin/users' && method === 'POST') {
       try {
@@ -2243,6 +2298,20 @@ async function handleRequest(request, env, ctx) {
         
         // 保存到KV存储
         await env.YOYO_USER_DB.put(`user:${body.username}`, JSON.stringify(newUser));
+        // 同步更新用户索引，确保列表能立即看到新用户
+        try {
+          const idxRaw = await env.YOYO_USER_DB.get('system:user_index');
+          const idx = idxRaw ? JSON.parse(idxRaw) : { usernames: [], totalUsers: 0 };
+          if (!Array.isArray(idx.usernames)) idx.usernames = [];
+          if (!idx.usernames.includes(body.username)) {
+            idx.usernames.push(body.username);
+            idx.totalUsers = (idx.totalUsers || 0) + 1;
+            idx.lastUpdated = new Date().toISOString();
+            await env.YOYO_USER_DB.put('system:user_index', JSON.stringify(idx));
+          }
+        } catch (e) {
+          console.log('更新用户索引失败（忽略）:', e.message);
+        }
         
         return new Response(JSON.stringify({
           status: 'success',
@@ -2349,6 +2418,24 @@ async function handleRequest(request, env, ctx) {
         
         // 删除用户
         await env.YOYO_USER_DB.delete(`user:${userId}`);
+        // 同步更新用户索引，移除已删除用户
+        try {
+          const idxRaw = await env.YOYO_USER_DB.get('system:user_index');
+          if (idxRaw) {
+            const idx = JSON.parse(idxRaw);
+            if (Array.isArray(idx.usernames)) {
+              const before = idx.usernames.length;
+              idx.usernames = idx.usernames.filter(u => u !== userId);
+              if (idx.usernames.length !== before) {
+                idx.totalUsers = Math.max(0, (idx.totalUsers || before) - 1);
+                idx.lastUpdated = new Date().toISOString();
+                await env.YOYO_USER_DB.put('system:user_index', JSON.stringify(idx));
+              }
+            }
+          }
+        } catch (e) {
+          console.log('同步用户索引失败（忽略）:', e.message);
+        }
         
         return new Response(JSON.stringify({
           status: 'success',
