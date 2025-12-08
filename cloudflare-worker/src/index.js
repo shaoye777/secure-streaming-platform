@@ -362,6 +362,31 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
+    // 🧪 环境调试端点：检查生产环境是否正确绑定与配置
+    if (path === '/debug/env' && method === 'GET') {
+      try {
+        const info = {
+          hasKV: !!env.YOYO_USER_DB,
+          hasR2_LOGIN_LOGS: !!(env.LOGIN_LOGS && env.LOGIN_LOGS.get && env.LOGIN_LOGS.put),
+          hasR2_PROXY_HISTORY: !!env.PROXY_TEST_HISTORY,
+          hasEmergencyPassword: !!env.EMERGENCY_ADMIN_PASSWORD,
+          emergencyAdminUser: env.EMERGENCY_ADMIN_USERNAME || 'admin',
+          environment: env.ENVIRONMENT || 'unknown',
+          workerVersion: '2.0.0',
+          time: new Date().toISOString()
+        };
+        return new Response(JSON.stringify({ status: 'ok', data: info }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json', ...corsHeaders }
+        });
+      } catch (e) {
+        return new Response(JSON.stringify({ status: 'error', message: e.message }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json', ...corsHeaders }
+        });
+      }
+    }
+
     // 🆕 初始化路由（幂等）：用于小白一键部署后，通过浏览器完成KV/R2初始化与管理员创建
     // 支持两种方式：
     // - 推荐：GET /api/admin/init，并在请求头携带 X-Init-Secret: <secret>
@@ -1191,8 +1216,19 @@ async function handleRequest(request, env, ctx) {
 
     // 用户认证端点（支持KV存储用户数据）
     if ((path === '/api/auth/login' || path === '/api/login') && method === 'POST') {
-      const body = await request.json();
-      
+      let body = null;
+      try {
+        body = await request.json();
+      } catch (e) {
+        return new Response(JSON.stringify({
+          status: 'error',
+          message: 'Invalid JSON payload'
+        }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json', ...corsHeaders }
+        });
+      }
+
       try {
         // 从KV存储检查用户认证
         const userKey = `user:${body.username}`;
@@ -1320,7 +1356,7 @@ async function handleRequest(request, env, ctx) {
         
         // 🔥 V2.6: KV服务异常时的应急admin登录
         const emergencyAdmin = getEmergencyAdmin(env);
-        if (body.username === emergencyAdmin.username && body.password === emergencyAdmin.password) {
+        if (body && body.username === emergencyAdmin.username && body.password === emergencyAdmin.password) {
           console.warn('⚠️ KV服务异常，使用应急admin账号登录');
           return new Response(JSON.stringify({
             status: 'success',
@@ -1345,7 +1381,7 @@ async function handleRequest(request, env, ctx) {
         
         return new Response(JSON.stringify({
           status: 'error',
-          message: 'Login service error'
+          message: 'Login service error: ' + (error && error.message ? error.message : 'unknown')
         }), {
           status: 500,
           headers: { 'Content-Type': 'application/json', ...corsHeaders }
