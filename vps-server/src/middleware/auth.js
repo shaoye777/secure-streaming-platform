@@ -72,8 +72,15 @@ const authMiddleware = (req, res, next) => {
       });
     }
 
-    // 验证API密钥
-    if (apiKey !== process.env.API_SECRET_KEY) {
+    // 验证API密钥（兼容多种环境变量：API_SECRET_KEY / VPS_API_KEY / API_KEY）
+    const validKeys = [
+      process.env.API_SECRET_KEY,
+      process.env.VPS_API_KEY,
+      process.env.API_KEY
+    ].filter(Boolean);
+
+    const keyMatched = validKeys.some(k => k === apiKey);
+    if (!keyMatched) {
       logger.warn('Invalid API key attempt', {
         ip: req.ip,
         path: req.path,
@@ -94,8 +101,9 @@ const authMiddleware = (req, res, next) => {
                      req.connection.remoteAddress ||
                      req.ip;
 
-    // 验证IP白名单（Cloudflare IP段）
-    if (!isCloudflareIp(clientIp)) {
+    // 验证IP白名单（Cloudflare IP段）；通过 Tunnel 时放行（根据 CF 头判断）
+    const viaCloudflare = !!(req.headers['cf-connecting-ip'] || req.headers['cf-ray'] || req.headers['cf-visitor']);
+    if (process.env.ENABLE_IP_WHITELIST === 'true' && !viaCloudflare && !isCloudflareIp(clientIp)) {
       logger.warn('Request from non-Cloudflare IP', {
         ip: clientIp,
         path: req.path,

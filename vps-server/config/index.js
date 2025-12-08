@@ -21,17 +21,17 @@ class Config {
     this.nodeEnv = process.env.NODE_ENV;
     
     // ========================================
-    // 域名配置（必需）
+    // 域名配置
     // ========================================
-    this.vpsBaseUrl = process.env.VPS_BASE_URL;
-    this.workersApiUrl = process.env.WORKERS_API_URL;
-    this.tunnelBaseUrl = process.env.TUNNEL_BASE_URL;
+    this.vpsBaseUrl = process.env.VPS_BASE_URL;  // 必需
+    this.workersApiUrl = process.env.WORKERS_API_URL;  // 必需
+    this.tunnelBaseUrl = process.env.TUNNEL_BASE_URL;  // 可选
     
     // ========================================
-    // API密钥配置（必需）
+    // API密钥配置
     // ========================================
-    this.vpsApiKey = process.env.VPS_API_KEY;
-    this.workersApiKey = process.env.WORKERS_API_KEY;
+    this.vpsApiKey = process.env.VPS_API_KEY;  // 必需
+    this.workersApiKey = process.env.WORKERS_API_KEY;  // 可选
     
     // ========================================
     // 第三方服务配置（可选）
@@ -97,14 +97,16 @@ class Config {
       invalid.push('NODE_ENV must be one of: development, production, test, staging');
     }
 
-    // 验证URL格式
+    // 验证URL格式（仅验证已提供的 URL）
     const urlFields = [
-      { key: 'VPS_BASE_URL', value: this.vpsBaseUrl },
-      { key: 'WORKERS_API_URL', value: this.workersApiUrl },
-      { key: 'TUNNEL_BASE_URL', value: this.tunnelBaseUrl }
+      { key: 'VPS_BASE_URL', value: this.vpsBaseUrl, required: true },
+      { key: 'WORKERS_API_URL', value: this.workersApiUrl, required: true },
+      { key: 'TUNNEL_BASE_URL', value: this.tunnelBaseUrl, required: false }
     ];
 
-    for (const { key, value } of urlFields) {
+    for (const { key, value, required } of urlFields) {
+      // 如果是必需的但未提供，已经在上面的 missing 检查中处理
+      // 如果提供了值，则验证格式
       if (value && !value.startsWith('http://') && !value.startsWith('https://')) {
         invalid.push(`${key} must start with http:// or https://`);
       }
