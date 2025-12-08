@@ -127,13 +127,17 @@ let preloadHealthCheck = null;
 let recordScheduler = null;
 
 try {
+  logger.info('开始加载简化流管理模块...');
   const simpleStreamModule = require('./routes/simple-stream');
+  logger.info('模块加载成功，开始初始化组件...');
   streamManager = simpleStreamModule.streamManager;
   preloadScheduler = simpleStreamModule.preloadScheduler;
   preloadHealthCheck = simpleStreamModule.preloadHealthCheck;
   recordScheduler = simpleStreamModule.recordScheduler;
+  logger.info('组件初始化完成，注册路由...');
   
   app.use('/api/simple-stream', simpleStreamModule.router);
+  logger.info('路由注册完成');
   
   // 🆕 将workdayChecker注册到app，供其他路由访问
   if (preloadScheduler && preloadScheduler.workdayChecker) {
@@ -144,6 +148,7 @@ try {
   logger.info('✅ 简化流管理API路由已加载');
 } catch (error) {
   logger.error('简化流管理API路由加载失败:', error.message);
+  logger.error('错误堆栈:', error.stack);
 }
 
 // 🆕 预加载管理API路由
