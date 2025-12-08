@@ -380,7 +380,7 @@ const handleAdd = async () => {
     const channelId = generateChannelId(addForm.name)
     
     const result = await streamsStore.addStream({
-      channelId: channelId,
+      id: channelId,
       name: addForm.name,
       rtmpUrl: addForm.rtmpUrl
     })
