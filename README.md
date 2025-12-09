@@ -1,4 +1,4 @@
-﻿# YOYO流媒体平台 - 项目结构说明
+# YOYO流媒体平台 - 项目结构说明
 
 ## 📁 目录结构
 
@@ -43,13 +43,16 @@ secure-streaming-platform/
 
 ## 🚀 部署流程
 
-### 1. Cloudflare Workers
+> 下文仅为 **快速概览**，完整图文步骤请参见：
+> [`docs/DEPLOYMENT_GUIDE.md`](./docs/DEPLOYMENT_GUIDE.md)
+
+### 1. Cloudflare Workers（后端 API 网关）
 \\\ash
 cd cloudflare-worker
 wrangler deploy --env production
 \\\
 
-### 2. Cloudflare Pages（前端）
+### 2. Cloudflare Pages（前端，可选）
 \\\ash
 # 自动部署：提交代码到GitHub
 git push origin master
@@ -60,7 +63,7 @@ git push origin master
 # - Output directory: dist
 \\\
 
-### 3. VPS服务端
+### 3. VPS服务端（转码 + HLS）
 \\\ash
 cd vps-server
 pm2 restart ecosystem.config.js
