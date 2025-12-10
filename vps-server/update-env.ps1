@@ -91,10 +91,10 @@ if ($response -ne "y") {
     Write-Host ""
     
     if ($missingConfigs -contains "VPS_BASE_URL") {
-        Write-Host "VPS_BASE_URL=https://yoyo-vps.5202021.xyz" -ForegroundColor Gray
+        Write-Host "VPS_BASE_URL=https://yoyo-vps.your-domain.com" -ForegroundColor Gray
     }
     if ($missingConfigs -contains "WORKERS_API_URL") {
-        Write-Host "WORKERS_API_URL=https://yoyoapi.5202021.xyz" -ForegroundColor Gray
+        Write-Host "WORKERS_API_URL=https://yoyoapi.your-domain.com" -ForegroundColor Gray
     }
     if ($missingConfigs -contains "VPS_API_KEY") {
         Write-Host "VPS_API_KEY=your-vps-api-key-here" -ForegroundColor Gray
@@ -130,7 +130,7 @@ if ($missingConfigs -contains "VPS_BASE_URL") {
     $newContent += @"
 
 # VPS基础域名（本服务的公网访问地址）
-VPS_BASE_URL=https://yoyo-vps.5202021.xyz
+VPS_BASE_URL=https://yoyo-vps.your-domain.com
 
 "@
 }
@@ -139,7 +139,7 @@ if ($missingConfigs -contains "WORKERS_API_URL") {
     $newContent += @"
 
 # Workers API域名（Cloudflare Workers的访问地址）
-WORKERS_API_URL=https://yoyoapi.5202021.xyz
+WORKERS_API_URL=https://yoyoapi.your-domain.com
 
 "@
 }

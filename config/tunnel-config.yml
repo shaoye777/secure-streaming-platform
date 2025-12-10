@@ -5,30 +5,30 @@ credentials-file: /root/.cloudflared/yoyo-streaming.json
 # 入口规则配置
 ingress:
   # API服务隧道 - 端口3000
-  - hostname: tunnel-api.yoyo-vps.5202021.xyz
+  - hostname: tunnel-api.yoyo-vps.your-domain.com
     service: http://localhost:3000
     originRequest:
-      httpHostHeader: yoyo-vps.5202021.xyz
+      httpHostHeader: yoyo-vps.your-domain.com
       connectTimeout: 30s
       tlsTimeout: 10s
       keepAliveTimeout: 30s
       keepAliveConnections: 10
       
   # HLS文件服务隧道 - 端口8080  
-  - hostname: tunnel-hls.yoyo-vps.5202021.xyz
+  - hostname: tunnel-hls.yoyo-vps.your-domain.com
     service: http://localhost:8080
     originRequest:
-      httpHostHeader: yoyo-vps.5202021.xyz
+      httpHostHeader: yoyo-vps.your-domain.com
       connectTimeout: 30s
       tlsTimeout: 10s
       keepAliveTimeout: 30s
       keepAliveConnections: 10
       
   # 健康检查端点
-  - hostname: tunnel-health.yoyo-vps.5202021.xyz
+  - hostname: tunnel-health.yoyo-vps.your-domain.com
     service: http://localhost:3000/health
     originRequest:
-      httpHostHeader: yoyo-vps.5202021.xyz
+      httpHostHeader: yoyo-vps.your-domain.com
       
   # 默认规则 - 返回404
   - service: http_status:404

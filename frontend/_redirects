@@ -2,10 +2,10 @@
 # 用于SPA路由和API代理
 
 # API代理到Cloudflare Worker
-/api/* https://yoyoapi.5202021.xyz/api/:splat 200
+/api/* https://yoyoapi.your-domain.com/api/:splat 200
 # 移除 /login 和 /logout 重定向，避免与前端路由冲突
 # 这些路径应该由 Vue Router 处理，而不是重定向到后端
-/hls/* https://yoyoapi.5202021.xyz/hls/:splat 200
+/hls/* https://yoyoapi.your-domain.com/hls/:splat 200
 
 # SPA路由 - 所有未匹配的路径都返回index.html
 /* /index.html 200

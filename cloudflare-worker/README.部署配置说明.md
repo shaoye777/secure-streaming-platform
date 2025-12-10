@@ -142,12 +142,12 @@ wrangler deploy --env production
 name = "yoyo-streaming-simple"
 
 # 2. 域名路由（个人域名）
-route = { pattern = "yoyoapi.5202021.xyz/*", zone_name = "5202021.xyz" }
+route = { pattern = "yoyoapi.your-domain.com/*", zone_name = "your-domain.com" }
 
 # 3. 环境变量中的域名
-FRONTEND_DOMAIN = "https://yoyo.5202021.xyz"
-WORKER_DOMAIN = "https://yoyoapi.5202021.xyz"
-VPS_API_URL = "https://yoyo-vps.5202021.xyz"
+FRONTEND_DOMAIN = "https://yoyo.your-domain.com"
+WORKER_DOMAIN = "https://yoyoapi.your-domain.com"
+VPS_API_URL = "https://yoyo-vps.your-domain.com"
 
 # 4. KV和R2的ID
 id = "<KV_Namespace_ID>"
