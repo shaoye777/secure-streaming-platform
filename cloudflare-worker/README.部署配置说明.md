@@ -150,7 +150,7 @@ WORKER_DOMAIN = "https://yoyoapi.5202021.xyz"
 VPS_API_URL = "https://yoyo-vps.5202021.xyz"
 
 # 4. KV和R2的ID
-id = "edafbcf1042147f9b52f0fc4b5c37543"
+id = "<KV_Namespace_ID>"
 bucket_name = "proxy-test-history"
 ```
 
