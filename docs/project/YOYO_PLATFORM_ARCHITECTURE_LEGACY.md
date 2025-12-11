@@ -2381,8 +2381,8 @@ const stopResponse = await fetch('https://yoyo-vps.your-domain.com/api/simple-st
 
 - **用户使用指南**: [USER_GUIDE.md](./USER_GUIDE.md) - 完整的使用指南和维护手册
 - **项目进度报告**: [PROJECT_PROGRESS.md](./PROJECT_PROGRESS.md) - 详细的项目完成状态和待办事项
-- **部署指南**: [COMPLETE_DEPLOYMENT_GUIDE.md](../../COMPLETE_DEPLOYMENT_GUIDE.md) - 完整的部署流程
-- **架构设计**: [SIMPLE_STREAMING_REDESIGN.md](../../SIMPLE_STREAMING_REDESIGN.md) - SimpleStreamManager设计文档
+- **部署指南**: [COMPLETE_DEPLOYMENT_GUIDE.md](../COMPLETE_DEPLOYMENT_GUIDE.md) - 完整的部署流程
+- **架构设计**: [SIMPLE_STREAMING_REDESIGN.md](../SIMPLE_STREAMING_REDESIGN.md) - SimpleStreamManager设计文档
 
 ---
 
