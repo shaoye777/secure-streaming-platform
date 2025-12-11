@@ -2,30 +2,62 @@
 
 ## 🧩 项目简介
 
-YOYO流媒体平台是一个面向多种实时监控与直播场景的**安全直播/回放一体化解决方案**，通过 Cloudflare 边缘网络 + VPS 转码服务，实现：
+YOYO流媒体平台是一个面向多种实时监控与直播场景的**安全直播 / 回放一体化解决方案**，采用「前端 + Cloudflare Workers + VPS 转码」的三层架构，通过 Cloudflare 边缘网络 + VPS 转码服务，实现：
 
-- 授权用户可通过浏览器安全观看摄像头实时画面；
-- 管理员可在后台集中管理频道、预加载与定时录制；
-- 利用 Cloudflare Tunnel 隐藏 VPS 源站 IP，提升安全性。
+- 支持多用户、多频道的实时视频流播放与录制；
+- 管理员可在后台集中管理频道、预加载与定时录制策略；
+- 结合 Cloudflare Tunnel 隐藏 VPS 源站 IP，降低被攻击风险。
 
 本仓库包含完整的三端代码：Cloudflare Worker（后端 API 网关）、Vue 前端和 VPS 转码服务端。
 
 ## ✨ 核心特性
 
 - **安全访问与隐藏源站**：
-  - 前端仅访问 Cloudflare Worker 域名；
-  - 通过 Cloudflare Tunnel 访问 VPS，无需在防火墙开放转码端口。
+  - 前端与管理后台只访问 Cloudflare Workers 域名；
+  - 通过 Cloudflare Tunnel 访问 VPS，无需在防火墙暴露转码端口。
 
-- **多频道直播管理**：
-  - 支持多个 RTMP 频道配置、排序；
-  - 一键开启/关闭频道预加载与定时录制。
+- **多频道直播 + 录制管理**：
+  - 支持多个 RTMP 频道配置、排序与启停；
+  - 一键开启 / 关闭频道预加载与定时录制。
 
-- **智能预加载与定时录制**：
-  - 根据时间段和工作日规则自动启动/停止推流；
-  - 支持录制文件保留策略与清理任务。
+- **智能预加载与定时任务体系**：
+  - 支持按工作日 / 时间段规则自动启动或停止转码；
+  - 内置录制文件保留策略与定期清理任务。
 
-- **前后端完全开源**：
-  - 方便二次开发、私有化部署和安全审计。
+- **双维度路由与 Workers 流共享缓存**：
+  - 前端路径（Pages / Tunnel）+ 后端路径（直连 / 代理）的组合路由，提高可用性；
+  - HLS 分片在 Workers 缓存，多端观看共用一条转码流，显著节省 VPS 带宽。
+
+- **前后端完全开源，便于二次开发**：
+  - 所有核心逻辑开放，方便安全审计与私有化部署。
+
+## 🏗️ 整体架构一览
+
+```text
+┌────────────────────────────────────────────┐
+│ 前端层: Vue 3 + Element Plus + hls.js       │
+│ 域名: https://yoyo.your-domain.com          │
+│ 部署: Cloudflare Pages                      │
+└────────────────────────────────────────────┘
+                     ↓
+┌────────────────────────────────────────────┐
+│ 业务层: Cloudflare Workers                  │
+│ 域名: https://yoyoapi.your-domain.com       │
+│ 功能: API 服务、路由决策、用户认证、HLS 缓存  │
+└────────────────────────────────────────────┘
+                     ↓
+┌────────────────────────────────────────────┐
+│ 转码层: Node.js + FFmpeg (VPS)              │
+│ 域名: https://yoyo-vps.your-domain.com      │
+│ 功能: RTMP → HLS 转码、进程管理、代理服务     │
+└────────────────────────────────────────────┘
+```
+
+## 🔧 模块划分（简版）
+
+- **前端层（Cloudflare Pages + Vue 3）**：频道列表、播放器界面、用户登录与权限控制，并展示当前路由模式。
+- **业务层（Cloudflare Workers）**：统一 API 网关、用户与频道管理、预加载配置、HLS 分片缓存、隧道代理与路由决策。
+- **转码层（VPS + Node.js + FFmpeg + Nginx）**：RTMP → HLS 实时转码、转码进程调度、多用户共享转码、录制与视频清理任务。
 
 ## 🛠 技术栈
 
@@ -100,7 +132,7 @@ cd cloudflare-worker
 wrangler deploy --env production
 ```
 
-### 2. Cloudflare Pages（前端，可选）
+### 2. Cloudflare Pages（前端）
 
 ```bash
 # 自动部署：提交代码到GitHub
@@ -118,36 +150,6 @@ git push origin master
 cd vps-server
 pm2 restart ecosystem.config.js
 ```
-
-## 📝 重构说明
-
-**重构日期**: 2025-11-03
-
-**重构原因**:
-- 消除两套Workers代码并存的混乱
-- 提升核心目录到根级别
-- 统一脚本和文档管理
-
-**主要变更**:
-- 删除 \vps-transcoder-api/cloudflare-worker/\（不用的版本）
-- 提升 \frontend/\、\vps-server/\ 到根目录
-- 整理所有脚本到 \scripts/\
-- 合并文档到 \docs/\
-
-**备份标签**: \backup-before-restructure-20251103\
-
-## ⚠️ 注意事项
-
-1. **Cloudflare Pages需要更新构建路径**：
-   - 旧路径: \vps-transcoder-api/frontend\
-   - 新路径: \frontend\
-
-2. **部署脚本路径已更改**：
-   - 所有脚本移至 \scripts/\ 目录
-
-3. **VPS服务端重命名**：
-   - 旧名称: \vps-transcoder-api/vps-transcoder-api\
-   - 新名称: \vps-server\
 
 ## 📞 联系方式
 
