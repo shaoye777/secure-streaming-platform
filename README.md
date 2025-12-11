@@ -49,7 +49,7 @@ YOYO流媒体平台是一个面向多种实时监控与直播场景的**安全�
 
 ## 📁 目录结构
 
-\\\
+```text
 secure-streaming-platform/
 │
 ├── cloudflare-worker/          # Cloudflare Workers（后端API）
@@ -86,7 +86,7 @@ secure-streaming-platform/
 ├── config/                     # 配置文件
 ├── src/                        # 共享源代码
 └── archive/                    # 归档文件
-\\\
+```
 
 ## 🚀 部署流程
 
@@ -94,13 +94,15 @@ secure-streaming-platform/
 > [`docs/DEPLOYMENT_GUIDE.md`](./docs/DEPLOYMENT_GUIDE.md)
 
 ### 1. Cloudflare Workers（后端 API 网关）
-\\\ash
+
+```bash
 cd cloudflare-worker
 wrangler deploy --env production
-\\\
+```
 
 ### 2. Cloudflare Pages（前端，可选）
-\\\ash
+
+```bash
 # 自动部署：提交代码到GitHub
 git push origin master
 
@@ -108,13 +110,14 @@ git push origin master
 # - Root directory: frontend
 # - Build command: npm run build
 # - Output directory: dist
-\\\
+```
 
 ### 3. VPS服务端（转码 + HLS）
-\\\ash
+
+```bash
 cd vps-server
 pm2 restart ecosystem.config.js
-\\\
+```
 
 ## 📝 重构说明
 
@@ -126,25 +129,25 @@ pm2 restart ecosystem.config.js
 - 统一脚本和文档管理
 
 **主要变更**:
-- 删除 \ps-transcoder-api/cloudflare-worker/\（不用的版本）
-- 提升 \rontend/\、\ps-server/\ 到根目录
+- 删除 \vps-transcoder-api/cloudflare-worker/\（不用的版本）
+- 提升 \frontend/\、\vps-server/\ 到根目录
 - 整理所有脚本到 \scripts/\
 - 合并文档到 \docs/\
 
-**备份标签**: \ackup-before-restructure-20251103\
+**备份标签**: \backup-before-restructure-20251103\
 
 ## ⚠️ 注意事项
 
 1. **Cloudflare Pages需要更新构建路径**：
-   - 旧路径: \ps-transcoder-api/frontend\
-   - 新路径: \rontend\
+   - 旧路径: \vps-transcoder-api/frontend\
+   - 新路径: \frontend\
 
 2. **部署脚本路径已更改**：
    - 所有脚本移至 \scripts/\ 目录
 
 3. **VPS服务端重命名**：
-   - 旧名称: \ps-transcoder-api/vps-transcoder-api\
-   - 新名称: \ps-server\
+   - 旧名称: \vps-transcoder-api/vps-transcoder-api\
+   - 新名称: \vps-server\
 
 ## 📞 联系方式
 
