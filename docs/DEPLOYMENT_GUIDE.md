@@ -67,13 +67,14 @@
 
 ## 5. 步骤一：Fork 仓库并获取代码
 
-```bash
-# 在本地克隆你自己账号下 Fork 后的仓库
-git clone https://github.com/<your-account>/secure-streaming-platform.git
-cd secure-streaming-platform
-```
+1. 在浏览器中打开本项目的 GitHub 页面：`https://github.com/shao-ye/secure-streaming-platform`。
+2. 如下图所示，在页面右上角点击 **Fork** 按钮（标记为 ①），将仓库 Fork 到你自己的 GitHub 账号下。
+3. Fork 完成后，GitHub 会自动跳转到你自己账号下的仓库页面，地址类似：`https://github.com/<your-account>/secure-streaming-platform`。你也可以顺手点一下 **Star**（标记为 ②），方便以后在 GitHub 中快速找到这个仓库。
+4. 记住这个新仓库的地址，后续在 Cloudflare Pages、VPS 一键脚本等界面中，只需要在表单里填写这个地址即可，全程通过网页完成配置，不需要在自己电脑上安装 Git 或执行命令行。
 
-> **推荐做法**：先在 GitHub 上将本仓库 **Fork 到你自己的账号**，然后使用上面的地址 `https://github.com/<your-account>/secure-streaming-platform.git` 进行 clone，方便你后续自定义改动和升级，而不影响上游仓库。
+![在 GitHub 页面 Fork 并标记 Star](./deployment/github-fork.png)
+
+> **说明**：本部署指南默认用户只需要通过浏览器网页操作即可完成部署；如果你是进阶用户，也可以根据需要在本地克隆这个仓库进行二次开发，但这不是必需步骤。
 
 ---
 
