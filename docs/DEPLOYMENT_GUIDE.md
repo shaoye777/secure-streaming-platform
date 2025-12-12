@@ -135,7 +135,7 @@
 
 ### 7.3 环境变量（推荐配置）
 
-1. 在部署完成的Pages项目中，点击 **设置** ①，进入设置页面，点击 **变量和机密** ②，在‘**变量和机密**’标签下，点击**‘+添加’**按钮，如下变量。
+1. 在部署完成的Pages项目中，点击 **设置** ①，进入设置页面，点击 **变量和机密** ②，在‘**变量和机密**’标签下，点击**‘+添加’**按钮，如下变量，下面有添加后的图示。
    ![ScreenShot_2025-12-12_131130_177.png](https://image.5202021.xyz/api/rfile/ScreenShot_2025-12-12_131130_177.png)
 
 | Key                  | 示例值                                                       | 说明                               |
@@ -150,6 +150,8 @@
 | `VITE_LOG_LEVEL`     | `error`                                                      | 日志级别（debug/info/warn/error） |
 
 > 请使用你自己的域名替换 `your-domain.com`，不要在开源仓库中提交真实域名配置。
+
+![ScreenShot_2025-12-12_172429_441.png](https://image.5202021.xyz/api/rfile/ScreenShot_2025-12-12_172429_441.png)
 
 部署完成后，可以在 Pages 项目中为其绑定 `yoyo.your-domain.com` 作为前端最终访问域名。
 
@@ -170,7 +172,22 @@
 5. （可选）然后再退出来重新进入创建第二个存储桶，**存储桶名称**输入 `proxy-test-history`（可随便输入） ①，点击 **创建存储桶** 按钮②。（代理诊断记录）
    ![ScreenShot_2025-12-12_140202_848.png](https://image.5202021.xyz/api/rfile/ScreenShot_2025-12-12_140202_848.png)
 
-后面步骤中会将创建的资源绑定到 Worker。
+### 8.2 创建 Tunnel（可选但推荐）
+
+1. 登录 Cloudflare Dashboard → Zero Trust ① 。
+   ![ScreenShot_2025-12-12_150212_719.png](https://image.5202021.xyz/api/rfile/ScreenShot_2025-12-12_150212_719.png)
+2. 进入 **Zero Trust** 页面后，点击左侧菜单 **网络** → **连接器** ②  → **创建隧道** 按钮 ③。
+      ![ScreenShot_2025-12-12_150842_739.png](https://image.5202021.xyz/api/rfile/ScreenShot_2025-12-12_150842_739.png)
+3. 点击 **选择Cloudflared** ①。
+   ![ScreenShot_2025-12-12_151210_824.png](https://image.5202021.xyz/api/rfile/ScreenShot_2025-12-12_151210_824.png)
+4. 填写 **隧道名称** 输入 `yoyo-tunnel`（可随便输入） ①，点击 **保存隧道** 按钮③。
+   ![ScreenShot_2025-12-12_151523_320.png](https://image.5202021.xyz/api/rfile/ScreenShot_2025-12-12_151523_320.png)
+5. 点击 **4.运行以下命令** 后面的复制按钮 ①，粘贴到记事本中记录秘钥，后面部署VPS时需要用到，然后点击 **下一步** 按钮 ②。
+   ![ScreenShot_2025-12-12_151918_506.png](https://image.5202021.xyz/api/rfile/ScreenShot_2025-12-12_151918_506.png)
+6. 设置填写 **子域** 输入 `tunnel`（可随便输入） ①，**域** 选择前面准备好的域名 ②， **类型** 选择 **HTTP** ③，**URL** 输入 `127.0.0.1:52535` ④，（52535是部署VPS的默认端口，可以自定义，后面部署VPS时需要保持一致），点击 **完成设置** 按钮。
+   ![ScreenShot_2025-12-12_152531_257.png](https://image.5202021.xyz/api/rfile/ScreenShot_2025-12-12_152531_257.png)
+
+后面步骤中会将创建的资源绑定到 Workers。
 
 Workers 代码位于仓库的 `cloudflare-worker` 目录。
 
@@ -233,7 +250,7 @@ Workers 代码位于仓库的 `cloudflare-worker` 目录。
 
 #### 8.3.2 业务相关变量（普通变量）
 
-1. 继续在Workers项目 **设置** 页面中，点击 **变量和机密** ②，在 **变量和机密** 后面的 **添加** 按钮，如下变量。
+1. 继续在Workers项目 **设置** 页面中，点击 **变量和机密** ②，在 **变量和机密** 后面的 **添加** 按钮，如下变量，下面有添加后的图示。
    ![ScreenShot_2025-12-12_144954_749.png](https://image.5202021.xyz/api/rfile/ScreenShot_2025-12-12_144954_749.png)
 
 | Key               | 示例值                              | 说明                                      |
@@ -249,31 +266,46 @@ Workers 代码位于仓库的 `cloudflare-worker` 目录。
 
 下列敏感信息建议在 Cloudflare Dashboard 中使用 **Secret** 类型保存：
 
-| Key                        | 说明                                                                 |
-|----------------------------|----------------------------------------------------------------------|
-| `VPS_API_KEY`              | Worker 访问 VPS API 时使用的鉴权密钥，由 VPS 一键脚本生成           |
-| `EMERGENCY_ADMIN_USERNAME` | 紧急管理员账号用户名，例如 `admin`                                  |
-| `EMERGENCY_ADMIN_PASSWORD` | 紧急管理员账号初始密码，用于首次登录管理后台                        |
+| Key                        | 说明                                                           |
+|----------------------------|--------------------------------------------------------------|
+| `VPS_API_KEY`              | Worker 访问 VPS API 时使用的鉴权密钥，由 VPS 一键脚本生成                      |
+| `EMERGENCY_ADMIN_USERNAME` | 紧急管理员账号用户名，不设置默认 `admin`                                       |
+| `EMERGENCY_ADMIN_PASSWORD` | 紧急管理员账号初始密码，用于首次登录管理后台                                       |
 | `INIT_SECRET`              | 调用 `/api/admin/init` 初始化接口时使用的安全 Token，对应请求头 `X-Init-Secret` |
+
+> 其中 `VPS_API_KEY`是在部署完VPS后生成的，后续再进行添加。
+
+1. 可以先添加这些变量，如图所示。
+   ![ScreenShot_2025-12-12_154159_198.png](https://image.5202021.xyz/api/rfile/ScreenShot_2025-12-12_154159_198.png)
 
 ##### 使用 INIT_SECRET 执行初始化
 
-配置好 `INIT_SECRET` 后，可以通过类似下面的命令初始化系统（一般只需执行一次）：
+配置好 `INIT_SECRET` 后，可以通过类似下面的命令初始化系统（一般只需执行一次）。
 
+接口会根据 Worker 配置自动创建管理员账号、初始化 KV 索引等。初始化完成后，请妥善保管或更新相关密钥。
+
+1. 可以通过浏览器访问 `https://<yoyoapi.your-domain.com>/api/admin/init/<INIT_SECRET>` 初始化系统, `<yoyoapi.your-domain.com>`要替换成你的workers配置的域名，`<INIT_SECRET>`要替换成你在workers中配置的`<INIT_SECRET>`变量，如下图所示。
+   ![ScreenShot_2025-12-12_154819_472.png](https://image.5202021.xyz/api/rfile/ScreenShot_2025-12-12_154819_472.png)
+
+2. 也可以通过命令行执行初始化：
 ```bash
 curl "https://yoyoapi.your-domain.com/api/admin/init" \
   -H "X-Init-Secret: <INIT_SECRET>"
 ```
 
-接口会根据 Worker 配置自动创建管理员账号、初始化 KV 索引等。初始化完成后，请妥善保管或更新相关密钥。
+3. 完成管理员账号密码初始化后，就可以通过配置好的Pagers域名访问页面进行登录系统了。
+   ![ScreenShot_2025-12-12_155219_799.png](https://image.5202021.xyz/api/rfile/ScreenShot_2025-12-12_155219_799.png)
+4. 使用workers中配置的`EMERGENCY_ADMIN_PASSWORD`变量密码登录系统，即可完成登录，登录成功后就可以删除workers中配置的`INIT_SECRET`变量和`EMERGENCY_ADMIN_USERNAME`变量（如果配置了的话）和`EMERGENCY_ADMIN_PASSWORD`变量了（admin的账号和密码已经被写到了kv中，所以可以删除了，如果想修改admin的密码的话，可以到kv中修改admin的密码，重新添加workers配置中的`INIT_SECRET`变量和`EMERGENCY_ADMIN_PASSWORD`变量，再次执行初始化接口即可）。
+   ![ScreenShot_2025-12-12_171852_478.png](https://image.5202021.xyz/api/rfile/ScreenShot_2025-12-12_171852_478.png)
 
----
 
 ## 9. 步骤五：部署 VPS 转码服务（一键脚本）
 
 VPS 端代码位于仓库的 `vps-server` 目录，你可以通过一键脚本在 VPS 上完成安装与配置。
 
 ### 9.1 连接到 VPS
+
+登录 VPS
 
 ```bash
 ssh root@your-vps-ip
@@ -282,6 +314,12 @@ ssh root@your-vps-ip
 ### 9.2 执行一键部署脚本
 
 在 VPS 上执行（以实际仓库地址为准，可放在你自己的 GitHub 仓库）：
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/shao-ye/secure-streaming-platform/master/vps-server/scripts/vps-oneclick.sh)
+```
+
+也可以执行你自己Fork到自己的仓库中的一键部署脚本，将下方命令 `<your-account>`替换成你的账号：
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/<your-account>/secure-streaming-platform/master/vps-server/scripts/vps-oneclick.sh)
@@ -303,20 +341,20 @@ bash <(curl -fsSL https://raw.githubusercontent.com/<your-account>/secure-stream
     - Node.js API 内部监听端口；
     - 仅本机访问，无需对外开放防火墙端口。
 
-- **Nginx 暴露端口**（默认 `52535`）：
+- **Nginx 暴露端口**（默认 `52535`）： (如果前面创建的隧道tunnel时填写了其他端口，这个地方要与创建的隧道tunnel的端口一致)
     - Cloudflare Tunnel / 直连都连到这个端口；
     - 若只使用 Tunnel，可以在防火墙中仅允许 `cloudflared` 本地访问。
 
 - **是否安装 Cloudflare Tunnel（Token）**：
-    - 如果选择 `y`，需要粘贴 Cloudflare Zero Trust 中 Tunnel 的 Token；
+    - 如果选择 `y`，需要粘贴 Cloudflare Zero Trust 中 Tunnel 的 Token；（前面创建的隧道tunnel时保存到记事本文件中的秘钥）
     - 脚本会自动安装并启动 `cloudflared`。
 
 - **Tunnel Hostname（可选）**：
-    - 用于自动健康检查，例如 `tunnel.your-domain.com`；
+    - 用于自动健康检查，例如 `tunnel.your-domain.com`；（前面创建的隧道tunnel域名）
     - 建议与上文 `VPS_API_URL` 对应。
 
 - **Cloudflare Worker API URL（非常关键）**：
-    - 请输入：`https://yoyoapi.your-domain.com`；
+    - 请输入：`https://yoyoapi.your-domain.com`；（前面创建的workers域名）
     - 写入 `.env` 中的 `WORKERS_API_URL`，用于 VPS 反向调用 Worker（读取预加载/录制配置等）。
 
 > 如果这里直接回车使用默认占位值：
@@ -326,6 +364,15 @@ bash <(curl -fsSL https://raw.githubusercontent.com/<your-account>/secure-stream
     >   ```bash
 >   pm2 restart vps-transcoder-api --update-env
 >   ```
+
+1. VPS执行一键部署脚本执行过程与输入内容如下图所示，安装脚本执行完成后，需要将脚本输出的`VPS_API_KEY`和`VPS_API_URL` ① 的值添加到workers的环境变量中。：
+
+![ScreenShot_2025-12-12_174307_264.png](https://image.5202021.xyz/api/rfile/ScreenShot_2025-12-12_174307_264.png)
+
+2. 登录 Cloudflare Dashboard → 计算和AI ① → Workers和Pages ② → 选择之前创建的 workers ③。
+   ![ScreenShot_2025-12-12_175020_380.png](https://image.5202021.xyz/api/rfile/ScreenShot_2025-12-12_175020_380.png)
+3. 添加 workers 环境变量配置，将脚本输出的`VPS_API_KEY`和`VPS_API_URL`添加到 **变量和密钥** 中，`VPS_API_KEY`的 **类型** 推荐选为 **密钥**类型，防止密钥泄露。
+   ![ScreenShot_2025-12-12_175429_014.png](https://image.5202021.xyz/api/rfile/ScreenShot_2025-12-12_175429_014.png)
 
 ### 9.4 防火墙与端口策略
 
